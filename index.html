@@ -1,10 +1,34 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>sistemaposweb</title>
+    <title>Abaco — POS Multisucursal</title>
+
+    <meta name="description" content="Abaco: sistema POS multisucursal para controlar ventas, inventario, créditos, cartera y cierres de caja desde cualquier dispositivo." />
+    <meta property="og:title" content="Abaco — POS Multisucursal" />
+    <meta property="og:description" content="Controla tus tiendas, inventario, créditos y cierres de caja en un solo lugar." />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#0b1428" />
+
+    <!-- Tipografías: Plus Jakarta Sans (interfaz) y JetBrains Mono (cifras, precios, PINs) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("abaco-tema") === "dark") {
+            document.documentElement.classList.add("dark")
+          }
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -97,16 +97,31 @@ const EGRESOS_INICIALES = [
 // ---------- Contexto ----------
 const POSContext = createContext(null)
 
+export const PIN_ADMIN_DEMO = "1234"
+export const MINUTOS_ADMIN_TEMPORAL = 10
+
+const temaInicial = () =>
+  typeof document !== "undefined" && document.documentElement.classList.contains("dark")
+    ? "dark"
+    : "light"
+
 export function POSProvider({ children }) {
-  const [sucursalActiva, setSucursalActiva] = useState("todas") // "todas" | "s1" | "s2" | "s3"
-  const [rol, setRol] = useState("admin") // "admin" | "cajero"
+  const [sucursalActiva, setSucursalActiva] = useState("todas")
+  const [rol, setRol] = useState("admin")
+  const [tema, setTema] = useState(temaInicial)
+
+  const [modalAdminAbierto, setModalAdminAbierto] = useState(false)
+  const [tieneAccionPendiente, setTieneAccionPendiente] = useState(false)
+  const [adminTemporalHasta, setAdminTemporalHasta] = useState(null)
+  const [segundosRestantes, setSegundosRestantes] = useState(0)
+  const accionPendiente = useRef(null)
+
   const [productos, setProductos] = useState(PRODUCTOS_INICIALES)
   const [clientes] = useState(CLIENTES_INICIALES)
   const [proveedores] = useState(PROVEEDORES_INICIALES)
   const [ventas, setVentas] = useState(VENTAS_INICIALES)
   const [egresos, setEgresos] = useState(EGRESOS_INICIALES)
 
-  // La deuda de cada cliente se calcula a partir de sus ventas fiadas pendientes
   const clientesConDeuda = useMemo(
     () =>
       clientes.map((c) => ({
@@ -120,14 +135,73 @@ export function POSProvider({ children }) {
 
   const sucursalActual = SUCURSALES.find((s) => s.id === sucursalActiva) || null
 
-  // El cajero solo trabaja en una sucursal, no tiene vista global
-  const cambiarRol = (nuevoRol) => {
-    setRol(nuevoRol)
-    if (nuevoRol === "cajero" && sucursalActiva === "todas") {
-      setSucursalActiva("s1")
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", tema === "dark")
+    try {
+      localStorage.setItem("abaco-tema", tema)
+    } catch {}
+  }, [tema])
+
+  const alternarTema = () => setTema((t) => (t === "dark" ? "light" : "dark"))
+
+  const pasarACajero = useCallback(() => {
+    setRol("cajero")
+    setAdminTemporalHasta(null)
+    setSucursalActiva((actual) => (actual === "todas" ? "s1" : actual))
+  }, [])
+
+  useEffect(() => {
+    if (!adminTemporalHasta) {
+      setSegundosRestantes(0)
+      return
     }
-  }
-  const alternarRol = () => cambiarRol(rol === "admin" ? "cajero" : "admin")
+    const tick = () => {
+      const restante = Math.max(0, Math.round((adminTemporalHasta - Date.now()) / 1000))
+      setSegundosRestantes(restante)
+      if (restante === 0) {
+        pasarACajero()
+        toast.info("El acceso temporal de administrador expiró")
+      }
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [adminTemporalHasta, pasarACajero])
+
+  const solicitarAutorizacion = useCallback(
+    (accion) => {
+      if (rol === "admin") {
+        accion?.()
+        return
+      }
+      accionPendiente.current = accion ?? null
+      setTieneAccionPendiente(Boolean(accion))
+      setModalAdminAbierto(true)
+    },
+    [rol]
+  )
+
+  const cerrarModalAdmin = useCallback(() => {
+    accionPendiente.current = null
+    setTieneAccionPendiente(false)
+    setModalAdminAbierto(false)
+  }, [])
+
+  // modo: "panel" (cambia a vista Admin) | "accion" (solo ejecuta la acción y sigue en Cajero)
+  const validarPinAdmin = useCallback((pin, modo = "panel") => {
+    if (pin !== PIN_ADMIN_DEMO) return false
+    const accion = accionPendiente.current
+    accionPendiente.current = null
+    setTieneAccionPendiente(false)
+    setModalAdminAbierto(false)
+
+    if (modo === "panel") {
+      setRol("admin")
+      setAdminTemporalHasta(Date.now() + MINUTOS_ADMIN_TEMPORAL * 60 * 1000)
+    }
+    accion?.()
+    return true
+  }, [])
 
   const value = {
     sucursales: SUCURSALES,
@@ -135,8 +209,16 @@ export function POSProvider({ children }) {
     setSucursalActiva,
     sucursalActual,
     rol,
-    cambiarRol,
-    alternarRol,
+    pasarACajero,
+    esAdminTemporal: adminTemporalHasta !== null,
+    segundosRestantes,
+    solicitarAutorizacion,
+    modalAdminAbierto,
+    tieneAccionPendiente,
+    cerrarModalAdmin,
+    validarPinAdmin,
+    tema,
+    alternarTema,
     productos,
     setProductos,
     clientes: clientesConDeuda,

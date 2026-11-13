@@ -22,6 +22,7 @@ export default function AdminAuthModal() {
     tieneAccionPendiente,
     cerrarModalAdmin,
     validarPinAdmin,
+    negocio,
   } = usePOS()
   const [pin, setPin] = useState("")
   const [error, setError] = useState("")
@@ -172,9 +173,12 @@ export default function AdminAuthModal() {
           </Button>
         )}
 
-        <p className="text-center text-xs text-muted-foreground">
-          Demo: el PIN de administrador es <span className="cifra font-bold">{PIN_ADMIN_DEMO}</span>
-        </p>
+        {/* Solo para la demo en clase: quitar en producción */}
+        {negocio?.id === "neg-1" && (
+          <p className="text-center text-xs text-muted-foreground">
+            Demo: el PIN de administrador es <span className="cifra font-bold">{PIN_ADMIN_DEMO}</span>
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   )

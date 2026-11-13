@@ -1,10 +1,12 @@
-import { NavLink } from "react-router-dom"
-import { Sparkles } from "lucide-react"
+import { NavLink, useNavigate } from "react-router-dom"
+import { LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { usePOS } from "@/context/POSContext"
 import { SECCIONES, etiquetaDe, itemsParaRol } from "@/config/navigation"
+import { Button } from "@/components/ui/button"
 
-function AbacoLogo({ className }) {
+// Logo: ábaco minimalista (también se usa en Landing, Login y Onboarding)
+export function AbacoLogo({ className }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -28,9 +30,33 @@ function AbacoLogo({ className }) {
   )
 }
 
+const iniciales = (nombre = "") =>
+  nombre
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join("")
+    .toUpperCase() || "AB"
+
+// Contenido reutilizable: sidebar de escritorio y menú móvil
 export function SidebarContent({ onNavigate }) {
-  const { rol, sucursalActual } = usePOS()
+  const { rol, sucursalActual, negocio, usuario, esAdminTemporal, logout } = usePOS()
+  const navigate = useNavigate()
   const items = itemsParaRol(rol)
+
+  const salir = async () => {
+    onNavigate?.()
+    navigate("/", { replace: true })
+    await logout()
+  }
+
+  const detalleUsuario =
+    rol === "admin"
+      ? esAdminTemporal
+        ? "Admin temporal"
+        : "Administrador"
+      : `Cajero · ${sucursalActual?.nombre ?? "Sucursal"}`
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -39,9 +65,11 @@ export function SidebarContent({ onNavigate }) {
         <div className="rounded-xl bg-accent-500 p-2 text-text-950 shadow-sm">
           <AbacoLogo className="h-6 w-6" />
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-lg font-extrabold leading-none tracking-tight">Abaco</p>
-          <p className="mt-1 text-xs text-sidebar-muted">POS Multisucursal</p>
+          <p className="mt-1 truncate text-xs text-sidebar-muted" title={negocio?.nombre}>
+            {negocio?.nombre ?? "POS Multisucursal"}
+          </p>
         </div>
       </div>
 
@@ -78,39 +106,31 @@ export function SidebarContent({ onNavigate }) {
         })}
       </nav>
 
-      {/* Badge Plan Gratis / Próximamente IA (solo Admin) */}
-      {rol === "admin" && (
-        <div className="mx-3 mb-3 rounded-xl border border-sidebar-border bg-sidebar-hover/60 p-3">
-          <div className="flex items-center gap-2 text-xs font-bold text-accent-400">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Plan Gratis Activo</span>
+      {/* Usuario activo + cerrar sesión */}
+      <div className="space-y-3 border-t border-sidebar-border p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sidebar-hover text-sm font-bold">
+            {iniciales(usuario?.nombre)}
           </div>
-          <p className="mt-1 text-[11px] leading-snug text-sidebar-muted">
-            Próximamente: Plan Pro con predicción de inventario por IA.
-          </p>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{usuario?.nombre ?? "Usuario"}</p>
+            <p className="truncate text-xs text-sidebar-muted">{detalleUsuario}</p>
+          </div>
         </div>
-      )}
-
-      {/* Usuario activo */}
-      <div className="flex items-center gap-3 border-t border-sidebar-border p-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sidebar-hover text-sm font-bold">
-          {rol === "admin" ? "AD" : "CJ"}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold">
-            {rol === "admin" ? "Administrador" : "Cajero"}
-          </p>
-          <p className="truncate text-xs text-sidebar-muted">
-            {rol === "admin"
-              ? "Dueño del negocio"
-              : sucursalActual?.nombre ?? "Sucursal"}
-          </p>
-        </div>
+        <Button
+          variant="ghost"
+          onClick={salir}
+          className="w-full justify-start gap-3 text-sidebar-foreground/80 hover:bg-sidebar-hover hover:text-sidebar-foreground"
+        >
+          <LogOut className="h-4 w-4" />
+          Cerrar sesión
+        </Button>
       </div>
     </div>
   )
 }
 
+// Sidebar fijo para pantallas grandes
 export default function Sidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-64 md:block">

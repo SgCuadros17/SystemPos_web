@@ -41,7 +41,7 @@ const iniciales = (nombre = "") =>
 
 // Contenido reutilizable: sidebar de escritorio y menú móvil
 export function SidebarContent({ onNavigate }) {
-  const { rol, sucursalActual, negocio, usuario, esAdminTemporal, logout } = usePOS()
+  const { rol, sucursalActual, negocio, usuario, esAdminTemporal, logout, usuariosNegocio } = usePOS()
   const navigate = useNavigate()
   const items = itemsParaRol(rol)
 
@@ -108,18 +108,35 @@ export function SidebarContent({ onNavigate }) {
 
       {/* Usuario activo + cerrar sesión */}
       <div className="space-y-3 border-t border-sidebar-border p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sidebar-hover text-sm font-bold">
-            {iniciales(usuario?.nombre)}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{usuario?.nombre ?? "Usuario"}</p>
-            <p className="truncate text-xs text-sidebar-muted">{detalleUsuario}</p>
-          </div>
-        </div>
+        {(() => {
+          // Lógica para saber qué nombre y subtítulo mostrar
+          const esAdminSimulando = usuario?.rol === "admin" && rol === "cajero";
+          const nombreCajeroReal = usuariosNegocio?.find(u => u.rol === "cajero")?.nombre || "Cajero";
+          
+          const nombreMostrar = rol === "admin" 
+            ? (usuario?.nombre ?? "Usuario") 
+            : (esAdminSimulando ? nombreCajeroReal : (usuario?.nombre ?? "Cajero"));
+            
+          const subtituloMostrar = rol === "admin" 
+            ? `Admin · ${sucursalActual?.nombre ?? "Global"}` 
+            : `Cajero en turno · ${sucursalActual?.nombre ?? "Sede"}`;
+
+          return (
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sidebar-hover text-sm font-bold text-sidebar-foreground">
+                {iniciales(nombreMostrar)}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{nombreMostrar}</p>
+                <p className="truncate text-xs text-sidebar-muted">{subtituloMostrar}</p>
+              </div>
+            </div>
+          );
+        })()}
+        
         <Button
           variant="ghost"
-          onClick={salir}
+          onClick={salir} 
           className="w-full justify-start gap-3 text-sidebar-foreground/80 hover:bg-sidebar-hover hover:text-sidebar-foreground"
         >
           <LogOut className="h-4 w-4" />

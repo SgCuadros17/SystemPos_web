@@ -74,7 +74,7 @@ export default function AdminAuthModal() {
       else if (e.key === "Backspace") borrar()
       else if (e.key === "Enter") {
         e.preventDefault()
-        confirmar(tieneAccionPendiente ? "accion" : "panel")
+        confirmar(tieneAccionPendiente() ? "accion" : "panel")
       }
     }
     window.addEventListener("keydown", onKey)

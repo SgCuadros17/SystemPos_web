@@ -7,11 +7,10 @@ import Placeholder from "@/pages/Placeholder"
 import LandingPage from "@/pages/LandingPage"
 import LoginPage from "@/pages/LoginPage"
 import OnboardingPage from "@/pages/OnboardingPage"
+import DashboardPage from "@/pages/DashboardPage"
 
-// Aquí iremos registrando las páginas reales, por ejemplo:
-// import Dashboard from "@/pages/Dashboard"
-// const PAGINAS = { "/dashboard": Dashboard }
-const PAGINAS = {}
+// Páginas reales registradas por ruta. Las que faltan usan Placeholder.
+const PAGINAS = { "/dashboard": DashboardPage }
 
 // Toaster global (funciona en Landing, Login, Onboarding y panel)
 function AppToaster() {

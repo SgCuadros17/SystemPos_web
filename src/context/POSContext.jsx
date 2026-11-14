@@ -7,6 +7,7 @@ import {
   iniciarSesionDemo,
   cerrarSesionServicio,
   actualizarSesionTrasOnboarding,
+  generarUUID,
   USUARIO_ADMIN_DEMO,
   USUARIO_CAJERO_DEMO,
 } from "@/services/auth.service"
@@ -22,6 +23,12 @@ export const formatCOP = (valor) =>
     currency: "COP",
     maximumFractionDigits: 0,
   }).format(valor)
+
+// "Arroz blanco · Orquídea · 1kg" (omite marca/presentación vacías)
+export const construirNombreUnificado = (p) =>
+  [p.nombre, p.marca, p.presentacion].filter(Boolean).join(" · ")
+
+const conNombreUnificado = (p) => ({ ...p, nombreUnificado: construirNombreUnificado(p) })
 
 // Fecha ISO de hace N días (misma hora actual)
 const fechaHace = (dias) => {
@@ -52,18 +59,27 @@ export const SUCURSALES = [
   { id: "s3", nombre: "Restaurante", direccion: "Avenida Principal #5-60", telefono: "300 111 0003", activa: true },
 ]
 
+// Producto = productos + inventario_sucursal (stock por sede).
 // stock: { idSucursal: unidades }. Si una sede no maneja el producto, no tiene clave.
+const prod = (id, nombre, marca, presentacion, categoria, precio, costoCompra, codigoBarras, icono, stock) => ({
+  id, nombre, marca, presentacion, categoria, precio, costoCompra, codigoBarras, icono,
+  imagenUrl: null,
+  stockMinimo: 5,
+  activo: true,
+  stock,
+})
+
 const PRODUCTOS_INICIALES = [
-  { id: "p1", nombre: "Aceite 1L", categoria: "Despensa", precio: 10000, stock: { s1: 24, s2: 12, s3: 6 } },
-  { id: "p2", nombre: "Panal de huevos", categoria: "Despensa", precio: 15000, stock: { s1: 18, s2: 4, s3: 10 } },
-  { id: "p3", nombre: "Arroz 1kg", categoria: "Despensa", precio: 4500, stock: { s1: 60, s2: 35, s3: 20 } },
-  { id: "p4", nombre: "Leche 1L", categoria: "Lácteos", precio: 4200, stock: { s1: 40, s2: 3, s3: 15 } },
-  { id: "p5", nombre: "Gaseosa 1.5L", categoria: "Bebidas", precio: 6500, stock: { s1: 30, s2: 22, s3: 18 } },
-  { id: "p6", nombre: "Pan tajado", categoria: "Panadería", precio: 5800, stock: { s1: 15, s2: 9, s3: 2 } },
-  { id: "p7", nombre: "Café 250g", categoria: "Despensa", precio: 9500, stock: { s1: 20, s2: 14, s3: 8 } },
-  { id: "p8", nombre: "Hamburguesa", categoria: "Comida", precio: 18000, stock: { s3: 45 } },
-  { id: "p9", nombre: "Jugo natural", categoria: "Bebidas", precio: 6000, stock: { s3: 50 } },
-]
+  prod("p1", "Aceite vegetal", "Premier", "1L", "Despensa", 10000, 7800, "770200100001", "droplet", { s1: 24, s2: 12, s3: 6 }),
+  prod("p2", "Huevos rojos AA", "Kikes", "Panal x30", "Despensa", 15000, 12200, "770200100002", "egg", { s1: 18, s2: 4, s3: 10 }),
+  prod("p3", "Arroz blanco", "Orquídea", "1kg", "Despensa", 4500, 3400, "770200100003", "wheat", { s1: 60, s2: 35, s3: 20 }),
+  prod("p4", "Leche entera", "Colanta", "1L", "Lácteos", 4200, 3300, "770200100004", "milk", { s1: 40, s2: 3, s3: 15 }),
+  prod("p5", "Gaseosa", "Postobón", "1.5L", "Bebidas", 6500, 4800, "770200100005", "cup-soda", { s1: 30, s2: 22, s3: 18 }),
+  prod("p6", "Pan tajado", "Bimbo", "Bolsa 500g", "Panadería", 5800, 4300, "770200100006", "croissant", { s1: 15, s2: 9, s3: 2 }),
+  prod("p7", "Café molido", "Sello Rojo", "250g", "Despensa", 9500, 7400, "770200100007", "coffee", { s1: 20, s2: 14, s3: 8 }),
+  prod("p8", "Hamburguesa artesanal", "De la casa", "Combo", "Comida", 18000, 9500, "", "sandwich", { s3: 45 }),
+  prod("p9", "Jugo natural", "De la casa", "Vaso 16oz", "Bebidas", 6000, 2500, "", "glass-water", { s3: 50 }),
+].map(conNombreUnificado)
 
 const CLIENTES_INICIALES = [
   { id: "c1", nombre: "Sebastián Ríos", telefono: "300 111 2233", pin: "2580", cupoMaximo: 200000 },
@@ -77,12 +93,19 @@ const PROVEEDORES_INICIALES = [
   { id: "pr3", nombre: "Panadería El Trigal", contacto: "300 000 0003" },
 ]
 
-// Crea una venta calculando el total a partir de los productos
+// Crea una venta calculando el total a partir de los productos.
+// nombreHistorico equivale a detalle_ventas.nombre_historico en Supabase.
 const crearVenta = (id, sucursalId, dias, metodo, items, clienteId = null, pagada = true) => {
   const n = parseInt(id.slice(1), 10) || 0
   const detalle = items.map(([productoId, cantidad]) => {
-    const precio = PRODUCTOS_INICIALES.find((p) => p.id === productoId).precio
-    return { productoId, cantidad, precio, subtotal: precio * cantidad }
+    const producto = PRODUCTOS_INICIALES.find((p) => p.id === productoId)
+    return {
+      productoId,
+      nombreHistorico: producto.nombreUnificado,
+      cantidad,
+      precio: producto.precio,
+      subtotal: producto.precio * cantidad,
+    }
   })
   return {
     id,
@@ -127,6 +150,25 @@ const EGRESOS_INICIALES = [
   { id: "e3", sucursalId: "s2", proveedorId: "pr3", monto: 60000, metodo: "efectivo", fecha: fechaHace(1), urlFoto: "https://placehold.co/400x520?text=Factura+Trigal" },
 ]
 
+// Traslados internos (traslados_inventario): no afectan el dinero de la caja
+const TRASLADOS_INICIALES = [
+  {
+    id: "t1", productoId: "p4", origenId: "s1", destinoId: "s2", cantidad: 20,
+    estado: "completado", usuarioNombre: "Administrador Demo",
+    nota: "Reposición de leche por stock bajo en Tienda 2", fecha: fechaHace(2),
+  },
+  {
+    id: "t2", productoId: "p7", origenId: "s1", destinoId: "s3", cantidad: 6,
+    estado: "completado", usuarioNombre: "Administrador Demo",
+    nota: "Café para el servicio del restaurante", fecha: fechaHace(3),
+  },
+  {
+    id: "t3", productoId: "p2", origenId: "s1", destinoId: "s2", cantidad: 12,
+    estado: "completado", usuarioNombre: "Cajero Demo",
+    nota: "Traslado de emergencia", fecha: fechaHace(5),
+  },
+]
+
 // ---------- Contexto ----------
 const POSContext = createContext(null)
 
@@ -155,6 +197,7 @@ const datosDemo = () => ({
   proveedores: PROVEEDORES_INICIALES,
   ventas: VENTAS_INICIALES,
   egresos: EGRESOS_INICIALES,
+  traslados: TRASLADOS_INICIALES,
   usuariosNegocio: USUARIOS_DEMO,
   pinAdmin: PIN_ADMIN_DEMO,
 })
@@ -176,6 +219,7 @@ const datosNegocioNuevo = ({ negocio, sucursal, usuarios }) => ({
   proveedores: [],
   ventas: [],
   egresos: [],
+  traslados: [],
   usuariosNegocio: usuarios,
   pinAdmin: usuarios.find((u) => u.rol === "admin")?.pin_seguridad ?? PIN_ADMIN_DEMO,
 })
@@ -197,6 +241,13 @@ const temaInicial = () =>
     ? "dark"
     : "light"
 
+// ---------- Normalización de productos ----------
+const aTexto = (v) => (v ?? "").toString().trim()
+const aNumero = (v, defecto = 0) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : defecto
+}
+
 export function POSProvider({ children }) {
   // Sesión guardada (lectura síncrona al montar)
   const [sesionInicial] = useState(() => obtenerSesionGuardada())
@@ -217,11 +268,12 @@ export function POSProvider({ children }) {
   const [sucursales, setSucursales] = useState(datosIniciales.sucursales)
   const [pinAdmin, setPinAdmin] = useState(datosIniciales.pinAdmin)
   const [usuariosNegocio, setUsuariosNegocio] = useState(datosIniciales.usuariosNegocio)
-  const [productos, setProductos] = useState(datosIniciales.productos)
+  const [productosBase, setProductosBase] = useState(datosIniciales.productos)
   const [clientes, setClientes] = useState(datosIniciales.clientes)
   const [proveedores, setProveedores] = useState(datosIniciales.proveedores)
   const [ventas, setVentas] = useState(datosIniciales.ventas)
   const [egresos, setEgresos] = useState(datosIniciales.egresos)
+  const [traslados, setTraslados] = useState(datosIniciales.traslados)
 
   // Autorización de administrador (PIN)
   const [modalAdminAbierto, setModalAdminAbierto] = useState(false)
@@ -234,12 +286,16 @@ export function POSProvider({ children }) {
     setSucursales(d.sucursales)
     setPinAdmin(d.pinAdmin)
     setUsuariosNegocio(d.usuariosNegocio)
-    setProductos(d.productos)
+    setProductosBase(d.productos)
     setClientes(d.clientes)
     setProveedores(d.proveedores)
     setVentas(d.ventas)
     setEgresos(d.egresos)
+    setTraslados(d.traslados ?? [])
   }, [])
+
+  // Todos los productos expuestos incluyen nombreUnificado (siempre recalculado)
+  const productos = useMemo(() => productosBase.map(conNombreUnificado), [productosBase])
 
   // La deuda de cada cliente se calcula a partir de sus ventas fiadas pendientes
   const clientesConDeuda = useMemo(
@@ -333,6 +389,181 @@ export function POSProvider({ children }) {
       return true
     },
     [pinAdmin]
+  )
+
+  // =====================================================================
+  // INVENTARIO
+  // Todas lanzan un Error con mensaje claro si algo no es válido.
+  // La restricción "solo el admin ingresa stock" la aplica la interfaz con
+  // solicitarAutorizacion(); en Supabase la refuerzan las políticas RLS.
+  // SUPABASE: cada función se convertiría en un servicio (inventario.service.js).
+  // =====================================================================
+
+  // Crea (sin id, o con un id nuevo generado en el cliente) o actualiza un producto.
+  // Campos: nombre, marca, presentacion, categoria, precio, costoCompra, codigoBarras,
+  // icono, imagenUrl, stockMinimo, activo, stock. Los campos no enviados se conservan.
+  // SUPABASE: upsert en `productos` (+ filas de `inventario_sucursal` según `stock`).
+  const guardarProducto = useCallback(
+    (datos) => {
+      const existente = datos.id ? productosBase.find((p) => p.id === datos.id) : null
+      const limpio = Object.fromEntries(Object.entries(datos).filter(([, v]) => v !== undefined))
+      const base = existente ?? {}
+      const m = { ...base, ...limpio }
+
+      const nombre = aTexto(m.nombre)
+      if (!nombre) throw new Error("El nombre del producto es obligatorio")
+      const precio = aNumero(m.precio, NaN)
+      if (!Number.isFinite(precio) || precio < 0) throw new Error("El precio de venta no es válido")
+      const costoCompra = aNumero(m.costoCompra, 0)
+      if (costoCompra < 0) throw new Error("El costo de compra no puede ser negativo")
+
+      const producto = {
+        id: existente ? existente.id : datos.id || `p-${generarUUID()}`,
+        nombre,
+        marca: aTexto(m.marca),
+        presentacion: aTexto(m.presentacion),
+        categoria: aTexto(m.categoria) || "Otros",
+        precio,
+        costoCompra,
+        codigoBarras: aTexto(m.codigoBarras),
+        icono: aTexto(m.icono) || "package",
+        imagenUrl: m.imagenUrl || null,
+        stockMinimo: Math.max(0, Math.floor(aNumero(m.stockMinimo, 5))),
+        activo: m.activo !== false,
+        stock: { ...(limpio.stock ?? base.stock ?? {}) },
+      }
+
+      setProductosBase((lista) =>
+        existente
+          ? lista.map((p) => (p.id === producto.id ? producto : p))
+          : [...lista, producto]
+      )
+      return conNombreUnificado(producto)
+    },
+    [productosBase]
+  )
+
+  // Suma stock en una sede (ingreso de mercancía tras revisar la factura).
+  // nuevoCosto es opcional: si viene, actualiza costoCompra.
+  // SUPABASE: update inventario_sucursal set stock_actual = stock_actual + n (mejor vía RPC).
+  const ingresarStockSucursal = useCallback(
+    ({ productoId, sucursalId, cantidadAgregada, nuevoCosto }) => {
+      const producto = productosBase.find((p) => p.id === productoId)
+      if (!producto) throw new Error("El producto no existe")
+      if (!sucursales.some((s) => s.id === sucursalId)) throw new Error("La sucursal no existe")
+      const cantidad = Number(cantidadAgregada)
+      if (!Number.isInteger(cantidad) || cantidad <= 0) {
+        throw new Error("La cantidad debe ser un entero mayor a 0")
+      }
+
+      const nuevoStock = (producto.stock?.[sucursalId] ?? 0) + cantidad
+      const costoValido =
+        nuevoCosto !== undefined && nuevoCosto !== null && nuevoCosto !== "" &&
+        Number.isFinite(Number(nuevoCosto)) && Number(nuevoCosto) >= 0
+
+      setProductosBase((lista) =>
+        lista.map((p) =>
+          p.id === productoId
+            ? {
+                ...p,
+                costoCompra: costoValido ? Number(nuevoCosto) : p.costoCompra,
+                stock: { ...p.stock, [sucursalId]: nuevoStock },
+              }
+            : p
+        )
+      )
+      return nuevoStock
+    },
+    [productosBase, sucursales]
+  )
+
+  // Define el stock exacto de una sede (conteo físico).
+  // stockExacto = null -> la sede deja de manejar el producto (se elimina la clave).
+  // SUPABASE: update/delete lógico en inventario_sucursal.
+  const ajustarStockSucursal = useCallback(
+    (productoId, sucursalId, stockExacto) => {
+      const producto = productosBase.find((p) => p.id === productoId)
+      if (!producto) throw new Error("El producto no existe")
+      if (!sucursales.some((s) => s.id === sucursalId)) throw new Error("La sucursal no existe")
+
+      const dejaDeManejarlo = stockExacto === null || stockExacto === undefined || stockExacto === ""
+      if (!dejaDeManejarlo) {
+        const n = Number(stockExacto)
+        if (!Number.isInteger(n) || n < 0) throw new Error("El stock debe ser un entero de 0 o más")
+      }
+
+      setProductosBase((lista) =>
+        lista.map((p) => {
+          if (p.id !== productoId) return p
+          const stock = { ...p.stock }
+          if (dejaDeManejarlo) delete stock[sucursalId]
+          else stock[sucursalId] = Number(stockExacto)
+          return { ...p, stock }
+        })
+      )
+    },
+    [productosBase, sucursales]
+  )
+
+  // Borrado lógico: nunca se elimina físicamente (productos.activo = false)
+  const cambiarEstadoProducto = useCallback((productoId, activo) => {
+    setProductosBase((lista) =>
+      lista.map((p) => (p.id === productoId ? { ...p, activo: Boolean(activo) } : p))
+    )
+  }, [])
+
+  // Traslado interno: resta en origen y suma en destino en una sola operación.
+  // No toca ventas ni egresos, así que no afecta la caja.
+  // SUPABASE: RPC transaccional (resta + suma + insert en traslados_inventario).
+  const registrarTraslado = useCallback(
+    ({ productoId, origenId, destinoId, cantidad, nota }) => {
+      const producto = productosBase.find((p) => p.id === productoId)
+      if (!producto) throw new Error("Selecciona un producto")
+      const origen = sucursales.find((s) => s.id === origenId)
+      const destino = sucursales.find((s) => s.id === destinoId)
+      if (!origen) throw new Error("Selecciona la sucursal de origen")
+      if (!destino) throw new Error("Selecciona la sucursal de destino")
+      if (origenId === destinoId) throw new Error("El origen y el destino deben ser distintos")
+
+      const unidades = Number(cantidad)
+      if (!Number.isInteger(unidades) || unidades <= 0) {
+        throw new Error("La cantidad debe ser un entero mayor a 0")
+      }
+      const disponible = producto.stock?.[origenId] ?? 0
+      if (unidades > disponible) {
+        throw new Error(`Solo hay ${disponible} unidad(es) disponibles en ${origen.nombre}`)
+      }
+
+      const traslado = {
+        id: generarUUID(),
+        productoId,
+        origenId,
+        destinoId,
+        cantidad: unidades,
+        estado: "completado",
+        usuarioNombre: usuario?.nombre ?? "—",
+        nota: aTexto(nota),
+        fecha: new Date().toISOString(),
+      }
+
+      setProductosBase((lista) =>
+        lista.map((p) =>
+          p.id === productoId
+            ? {
+                ...p,
+                stock: {
+                  ...p.stock,
+                  [origenId]: disponible - unidades,
+                  [destinoId]: (p.stock?.[destinoId] ?? 0) + unidades,
+                },
+              }
+            : p
+        )
+      )
+      setTraslados((lista) => [traslado, ...lista])
+      return traslado
+    },
+    [productosBase, sucursales, usuario]
   )
 
   // ---------- Sesión (usa la capa de servicios) ----------
@@ -457,7 +688,14 @@ export function POSProvider({ children }) {
     alternarTema,
     // datos
     productos,
-    setProductos,
+    setProductos: setProductosBase,
+    guardarProducto,
+    ingresarStockSucursal,
+    ajustarStockSucursal,
+    cambiarEstadoProducto,
+    traslados,
+    setTraslados,
+    registrarTraslado,
     clientes: clientesConDeuda,
     setClientes,
     proveedores,

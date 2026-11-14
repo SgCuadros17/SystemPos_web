@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { usePOS, formatCOP } from "@/context/POSContext"
+import { obtenerIconoProducto } from "@/config/catalogs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -250,6 +251,7 @@ export default function DashboardPage() {
     )
     const criticos = []
     for (const p of productos) {
+            if (p.activo === false) continue
       for (const s of sucursalesAlcance) {
         const u = p.stock?.[s.id]
         if (typeof u === "number" && u <= UMBRAL_STOCK) {
@@ -378,7 +380,7 @@ export default function DashboardPage() {
                 {[
                   { n: 1, icon: Package, titulo: "Agrega tus productos", texto: "Crea tu catálogo y carga el stock inicial de cada sucursal.", ruta: "/inventario", boton: "Ir a Inventario", accent: true },
                   { n: 2, icon: ShoppingCart, titulo: "Registra tu primera venta", texto: "Cobra en efectivo, Nequi o fiado desde el Punto de Venta.", ruta: "/pos", boton: "Ir al Punto de Venta" },
-                  { n: 3, icon: Building2, titulo: "Gestiona tus sucursales", texto: "Agrega sedes y empleados con su PIN de seguridad.", ruta: "/equipo", boton: "Ver sucursales" },
+                  { n: 3, icon: Building2, titulo: "Gestiona tus sucursales", texto: "Agrega sedes y empleados con su PIN de seguridad.", ruta: "/sucursales", boton: "Ver sucursales" },
                 ].map(({ n, icon: Icono, titulo, texto, ruta, boton, accent }) => (
                   <div key={n} className="flex flex-col gap-3 rounded-xl border bg-card p-4">
                     <div className="flex items-center gap-3">
@@ -835,27 +837,43 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {d.criticos.slice(0, 6).map(({ producto, sucursal, unidades }) => (
-                    <li
-                      key={`${producto.id}-${sucursal.id}`}
-                      className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">{producto.nombre}</p>
-                        <p className="truncate text-xs text-muted-foreground">{sucursal.nombre}</p>
-                      </div>
-                      <span
-                        className={cn(
-                          "cifra shrink-0 rounded-full px-2.5 py-1 text-xs font-bold",
-                          unidades <= 2
-                            ? "bg-red-500/15 text-red-600 dark:text-red-400"
-                            : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                        )}
+                  {d.criticos.slice(0, 6).map(({ producto, sucursal, unidades }) => {
+                    const Icono = obtenerIconoProducto(producto.icono)
+                    return (
+                      <li
+                        key={`${producto.id}-${sucursal.id}`}
+                        className="flex items-center gap-3 rounded-lg border bg-background p-3"
                       >
-                        {unidades} {unidades === 1 ? "unidad" : "unidades"}
-                      </span>
-                    </li>
-                  ))}
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary-500/10 text-primary-600">
+                          {producto.imagenUrl ? (
+                            <img
+                              src={producto.imagenUrl}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <Icono className="h-5 w-5" />
+                          )}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">
+                            {producto.nombreUnificado ?? producto.nombre}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">{sucursal.nombre}</p>
+                        </div>
+                        <span
+                          className={cn(
+                            "cifra shrink-0 rounded-full px-2.5 py-1 text-xs font-bold",
+                            unidades <= 2
+                              ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                              : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                          )}
+                        >
+                          {unidades} {unidades === 1 ? "unidad" : "unidades"}
+                        </span>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
 

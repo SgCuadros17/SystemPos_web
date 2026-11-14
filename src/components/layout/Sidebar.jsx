@@ -74,7 +74,7 @@ export function SidebarContent({ onNavigate }) {
       </div>
 
       {/* Navegación agrupada por sección */}
-      <nav className="flex-1 space-y-5 overflow-y-auto p-3">
+      <nav className="flex-1 min-h-0 space-y-5 overflow-y-auto p-3">
         {SECCIONES.map((seccion) => {
           const delGrupo = items.filter((i) => i.seccion === seccion)
           if (delGrupo.length === 0) return null

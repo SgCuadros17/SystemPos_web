@@ -132,7 +132,7 @@ const fechaCorta = (iso) =>
 // ---------------------------------------------------------------------
 function Entrada({ i = 0, className, children }) {
   return (
-    <div className={cn("dash-entrada", className)} style={{ animationDelay: `${i * 70}ms` }}>
+    <div className={cn("dash-entrada min-w-0", className)} style={{ animationDelay: `${i * 70}ms` }}>
       {children}
     </div>
   )
@@ -760,7 +760,7 @@ export default function DashboardPage() {
       {/* ---------- F) Últimas ventas + stock crítico ---------- */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Entrada i={9} className="lg:col-span-2">
-          <Card className="h-full gap-0 py-0">
+          <Card className="h-full gap-0 overflow-hidden py-0">
             <CardHeader className="px-5 pb-2 pt-5">
               <CardTitle className="text-lg">Últimas ventas</CardTitle>
               <CardDescription>Las 6 transacciones más recientes de la vista actual.</CardDescription>

@@ -766,6 +766,7 @@ export default function DashboardPage() {
               <CardDescription>Las 6 transacciones más recientes de la vista actual.</CardDescription>
             </CardHeader>
             <CardContent className="px-2 pb-3 pt-0 sm:px-4">
+              <div className="overflow-x-auto pb-2">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -810,6 +811,7 @@ export default function DashboardPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
         </Entrada>

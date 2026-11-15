@@ -8,9 +8,10 @@ import LandingPage from "@/pages/LandingPage"
 import LoginPage from "@/pages/LoginPage"
 import OnboardingPage from "@/pages/OnboardingPage"
 import DashboardPage from "@/pages/DashboardPage"
+import InventarioPage from "@/pages/InventarioPage"
 
 // Páginas reales registradas por ruta. Las que faltan usan Placeholder.
-const PAGINAS = { "/dashboard": DashboardPage }
+const PAGINAS = { "/dashboard": DashboardPage, "/inventario": InventarioPage }
 
 // Toaster global (funciona en Landing, Login, Onboarding y panel)
 function AppToaster() {

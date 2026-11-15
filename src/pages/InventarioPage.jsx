@@ -229,6 +229,7 @@ export default function InventarioPage() {
     setSucursalActiva,
     sucursalActual,
     rol,
+    modoAdminTemporal,
     solicitarAutorizacion,
     productos,
     cambiarEstadoProducto,
@@ -437,7 +438,7 @@ export default function InventarioPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          {rol === "admin" && (
+          {esAdmin && modoAdminTemporal !== "accion" && (
             <Select value={sucursalActiva} onValueChange={setSucursalActiva}>
               <SelectTrigger className="w-[200px]" aria-label="Alcance del inventario">
                 <Building2 className="mr-1 h-4 w-4 text-muted-foreground" />

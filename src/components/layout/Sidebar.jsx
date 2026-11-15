@@ -41,9 +41,10 @@ const iniciales = (nombre = "") =>
 
 // Contenido reutilizable: sidebar de escritorio y menú móvil
 export function SidebarContent({ onNavigate }) {
-  const { rol, sucursalActual, negocio, usuario, esAdminTemporal, logout, usuariosNegocio } = usePOS()
+  const { rol, sucursalActual, negocio, usuario, esAdminTemporal, modoAdminTemporal, pasarACajero, logout, usuariosNegocio } = usePOS()
   const navigate = useNavigate()
-  const items = itemsParaRol(rol)
+  const rolMenu = modoAdminTemporal === "accion" ? "cajero" : rol
+  const items = itemsParaRol(rolMenu)
 
   const salir = async () => {
     onNavigate?.()
@@ -87,7 +88,10 @@ export function SidebarContent({ onNavigate }) {
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  onClick={onNavigate}
+                  onClick={() => {
+                    if (modoAdminTemporal === "accion") pasarACajero()
+                    onNavigate?.()
+                  }}
                   className={({ isActive }) =>
                     cn(
                       "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-semibold transition-colors",

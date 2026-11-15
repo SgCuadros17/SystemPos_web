@@ -25,6 +25,7 @@ export default function Topbar() {
     pasarACajero,
     solicitarAutorizacion,
     esAdminTemporal,
+    modoAdminTemporal,
     segundosRestantes,
     tema,
     alternarTema,
@@ -50,7 +51,7 @@ export default function Topbar() {
       {esAdminTemporal ? (
         <span className="hidden items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-700 sm:inline-flex dark:text-amber-400">
           <Timer className="h-3.5 w-3.5" />
-          Admin temporal
+          {modoAdminTemporal === "accion" ? "Admin en sección" : "Admin temporal"}
           <span className="cifra">{mmss(segundosRestantes)}</span>
         </span>
       ) : (
@@ -71,14 +72,14 @@ export default function Topbar() {
         <Select
           value={sucursalActiva}
           onValueChange={setSucursalActiva}
-          disabled={rol === "cajero"}
+          disabled={rol === "cajero" || modoAdminTemporal === "accion"}
         >
           <SelectTrigger className="w-[170px] md:w-[210px]" aria-label="Sucursal">
             <Building2 className="mr-1 h-4 w-4 text-muted-foreground" />
             <SelectValue placeholder="Sucursal" />
           </SelectTrigger>
           <SelectContent>
-            {rol === "admin" && <SelectItem value="todas">Vista Global (Todas)</SelectItem>}
+            {rol === "admin" && modoAdminTemporal !== "accion" && <SelectItem value="todas">Vista Global (Todas)</SelectItem>}
             {sucursales.map((s) => (
               <SelectItem key={s.id} value={s.id}>
                 {s.nombre}

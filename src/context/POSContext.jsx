@@ -278,8 +278,9 @@ export function POSProvider({ children }) {
   // Autorización de administrador (PIN)
   const [modalAdminAbierto, setModalAdminAbierto] = useState(false)
   const [adminTemporalHasta, setAdminTemporalHasta] = useState(null)
+  const [modoAdminTemporal, setModoAdminTemporal] = useState(null) // null | "accion" | "panel"
   const [segundosRestantes, setSegundosRestantes] = useState(0)
-  const accionPendiente = useRef(null)
+  const accionPendiente = useRef(null) // función pendiente de ejecutar tras validar PIN
 
   const aplicarDatos = useCallback((d) => {
     setNegocio(d.negocio)
@@ -328,6 +329,7 @@ export function POSProvider({ children }) {
   const pasarACajero = useCallback(() => {
     setRol("cajero")
     setAdminTemporalHasta(null)
+    setModoAdminTemporal(null)
     setSucursalActiva((actual) => (actual === "todas" ? sucursales[0]?.id ?? "todas" : actual))
   }, [sucursales])
 
@@ -376,15 +378,14 @@ export function POSProvider({ children }) {
   //  modo "temporal" (por defecto): eleva el rol a admin por MINUTOS_ADMIN_TEMPORAL y ejecuta la acción.
   //  modo "unico": solo ejecuta la acción pendiente, sin cambiar el rol de la sesión.
   const validarPinAdmin = useCallback(
-    (pin, modo = "temporal") => {
+    (pin, modo = "panel") => {
       if (pin !== pinAdmin) return false
       const accion = accionPendiente.current
       accionPendiente.current = null
       setModalAdminAbierto(false)
-      if (modo !== "unico") {
-        setRol("admin")
-        setAdminTemporalHasta(Date.now() + MINUTOS_ADMIN_TEMPORAL * 60 * 1000)
-      }
+      setRol("admin")
+      setModoAdminTemporal(modo === "accion" ? "accion" : "panel")
+      setAdminTemporalHasta(Date.now() + MINUTOS_ADMIN_TEMPORAL * 60 * 1000)
       accion?.()
       return true
     },
@@ -677,6 +678,7 @@ export function POSProvider({ children }) {
     pasarACajero,
     pinAdmin,
     esAdminTemporal: adminTemporalHasta !== null,
+    modoAdminTemporal,
     segundosRestantes,
     solicitarAutorizacion,
     tieneAccionPendiente,

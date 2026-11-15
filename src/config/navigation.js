@@ -32,7 +32,7 @@ export const NAV_ITEMS = [
     to: "/inventario",
     label: "Inventario",
     icon: Package,
-    roles: ["admin"],
+    roles: ["admin", "cajero"],
     seccion: "Operación",
     descripcion: "Catálogo de productos, categorías, precios, stock por sede y traslados entre sucursales.",
   },

@@ -107,7 +107,7 @@ function MargenBadge({ p }) {
   )
 }
 
-function FilaProducto({ p, global, sucursalesAlcance, sucursalActiva, onEditar, onAlternar }) {
+function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, onEditar, onAlternar }) {
   const minimo = p.stockMinimo ?? 5
   const inactivo = p.activo === false
   const total = sucursalesAlcance.reduce((suma, s) => suma + (p.stock?.[s.id] ?? 0), 0)
@@ -148,8 +148,12 @@ function FilaProducto({ p, global, sucursalesAlcance, sucursalActiva, onEditar, 
       {/* Precio y costo */}
       <TableCell>
         <p className="cifra text-base font-bold">{formatCOP(p.precio)}</p>
-        <p className="cifra text-xs text-muted-foreground">Costo: {formatCOP(p.costoCompra)}</p>
-        <MargenBadge p={p} />
+        {esAdmin && (
+          <>
+            <p className="cifra text-xs text-muted-foreground">Costo: {formatCOP(p.costoCompra)}</p>
+            <MargenBadge p={p} />
+          </>
+        )}
       </TableCell>
 
       {/* Stock */}
@@ -195,7 +199,8 @@ function FilaProducto({ p, global, sucursalesAlcance, sucursalActiva, onEditar, 
         </TableCell>
       )}
 
-      {/* Acciones */}
+      {/* Acciones (Exclusivo para el administrador) */}
+      {esAdmin && (
       <TableCell>
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="outline" onClick={() => onEditar(p)}>
@@ -208,6 +213,7 @@ function FilaProducto({ p, global, sucursalesAlcance, sucursalActiva, onEditar, 
           </Button>
         </div>
       </TableCell>
+      )}
     </TableRow>
   )
 }
@@ -244,6 +250,8 @@ export default function InventarioPage() {
   const [modalTrasladoAbierto, setModalTrasladoAbierto] = useState(false)
 
   const global = sucursalActiva === "todas"
+  const esAdmin = rol === "admin"
+  const mostrarInactivos = esAdmin && verInactivos
 
   // Sedes visibles según el alcance actual
   const sucursalesAlcance = useMemo(
@@ -326,7 +334,7 @@ export default function InventarioPage() {
     const q = normalizar(busqueda.trim())
     const filtrada = productos.filter((p) => {
       const inactivo = p.activo === false
-      if (verInactivos ? !inactivo : inactivo) return false
+      if (mostrarInactivos ? !inactivo : inactivo) return false
       if (categoriaFiltro !== "todas" && p.categoria !== categoriaFiltro) return false
       if (marcaFiltro === "__sin__" && p.marca) return false
       if (marcaFiltro !== "todas" && marcaFiltro !== "__sin__" && p.marca !== marcaFiltro) return false
@@ -449,6 +457,8 @@ export default function InventarioPage() {
             <ArrowLeftRight className="h-4 w-4" />
             Trasladar mercancía
           </Button>
+          {esAdmin && (
+            <>
           <Button variant="outline" onClick={abrirIngreso}>
             <Plus className="h-4 w-4" />
             Ingresar compra
@@ -457,6 +467,8 @@ export default function InventarioPage() {
             <Plus className="h-4 w-4" />
             Nuevo producto
           </Button>
+          </>
+          )}
         </div>
       </div>
 
@@ -504,6 +516,7 @@ export default function InventarioPage() {
           </CardContent>
         </Card>
 
+        {esAdmin && (
         <Card className="h-full min-w-0 gap-0 py-0">
           <CardContent className="space-y-3 p-5">
             <div className="flex items-center justify-between gap-2">
@@ -527,6 +540,7 @@ export default function InventarioPage() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         <button
           type="button"
@@ -572,8 +586,8 @@ export default function InventarioPage() {
       </div>
 
       {/* ---------- Pestañas ---------- */}
-      <Tabs value={tab} onValueChange={setTab} className="min-w-0">
-        <TabsList>
+      <Tabs value={tab} onValueChange={setTab} className="flex min-w-0 flex-col">
+        <TabsList className="h-auto w-fit max-w-full flex-wrap justify-start self-start">
           <TabsTrigger value="catalogo">Catálogo y Stock</TabsTrigger>
           <TabsTrigger value="traslados">
             Traslados entre Sucursales
@@ -661,6 +675,7 @@ export default function InventarioPage() {
                       Solo stock bajo
                     </Button>
 
+                    {esAdmin && (
                     <Button
                       type="button"
                       variant="outline"
@@ -672,6 +687,7 @@ export default function InventarioPage() {
                       Ver desactivados
                       {kpi.inactivos > 0 && <span className="cifra">({kpi.inactivos})</span>}
                     </Button>
+                    )}
 
                     {hayFiltros && (
                       <Button type="button" variant="ghost" onClick={limpiarFiltros}>
@@ -696,10 +712,10 @@ export default function InventarioPage() {
                       <TableRow>
                         <TableHead>Producto</TableHead>
                         <TableHead>Categoría</TableHead>
-                        <TableHead>Precio y costo</TableHead>
+                        <TableHead>{esAdmin ? "Precio y costo" : "Precio de venta"}</TableHead>
                         <TableHead>{global ? "Stock por sucursal" : "Stock en la sede"}</TableHead>
                         {global && <TableHead className="text-right">Total</TableHead>}
-                        <TableHead className="text-right">Acciones</TableHead>
+                        {esAdmin &&<TableHead className="text-right">Acciones</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -725,6 +741,7 @@ export default function InventarioPage() {
                             key={p.id}
                             p={p}
                             global={global}
+                            esAdmin={esAdmin}
                             sucursalesAlcance={sucursalesAlcance}
                             sucursalActiva={sucursalActiva}
                             onEditar={abrirEditar}

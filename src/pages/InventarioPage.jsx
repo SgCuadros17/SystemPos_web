@@ -5,6 +5,7 @@ import {
   Bell,
   Boxes,
   Building2,
+  Lightbulb,
   Package,
   Pencil,
   Plus,
@@ -18,7 +19,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { usePOS, formatCOP } from "@/context/POSContext"
+import { usePOS, formatCOP, sugerirCalculoReceta } from "@/context/POSContext"
 import ProductFormModal, { MiniaturaProducto } from "@/components/inventory/ProductFormModal"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,12 +40,27 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 // ---------------------------------------------------------------------
 const CTA = "bg-accent-500 text-text-950 font-bold hover:bg-accent-600 dark:text-[#02180d]"
 const UMBRAL_CRITICO = 2
+const FILTROS_TIPO = [
+  { id: "todos", label: "Todos" },
+  { id: "menu", label: "Menú en venta (POS)" },
+  { id: "insumo", label: "Insumos internos" },
+  { id: "preparado", label: "Platos / Cócteles preparados" },
+]
+
+const coincideTipo = (p, filtro) => {
+  const t = p.tipoItem ?? "venta_directa"
+  if (filtro === "menu") return t === "venta_directa" || t === "preparado"
+  if (filtro === "insumo") return t === "insumo"
+  if (filtro === "preparado") return t === "preparado"
+  return true
+}
 
 const GREMIOS = {
   tienda: "Tienda de barrio",
   minimercado: "Minimercado",
   ferreteria: "Ferretería",
-  restaurante: "Restaurante",
+  restaurante: "Restaurante / Bar",
+  bar: "Restaurante / Bar",
 }
 
 const ESTADOS = {
@@ -107,12 +123,24 @@ function MargenBadge({ p }) {
   )
 }
 
-function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, onEditar, onAlternar }) {
+function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, onEditar, onAlternar, productosMap}) {
   const minimo = p.stockMinimo ?? 5
+  const tipo = p.tipoItem ?? "venta_directa"
+  const esInsumo = tipo === "insumo"
+  const esPreparado = tipo === "preparado"
+  const sugerencia =
+    esPreparado && p.receta?.length > 0
+      ? sugerirCalculoReceta(p, productosMap, global ? "todas" : sucursalActiva)
+      : null
   const inactivo = p.activo === false
   const total = sucursalesAlcance.reduce((suma, s) => suma + (p.stock?.[s.id] ?? 0), 0)
   const unidadesSede = global ? null : p.stock?.[sucursalActiva]
-  const estadoSede = global ? null : ESTADOS[estadoStock(unidadesSede, minimo)]
+  const claveSede = global ? null : estadoStock(unidadesSede, minimo)
+  const estadoSede = global
+    ? null
+    : esPreparado && claveSede === "nomanejado"
+      ? { label: "Sin conteo manual", clase: ESTADOS.nomanejado.clase }
+      : ESTADOS[claveSede]
   const detalle = [p.marca, p.presentacion].filter(Boolean).join(" · ")
 
   return (
@@ -129,6 +157,21 @@ function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, o
                   Inactivo
                 </Badge>
               )}
+              {esInsumo && (
+              <span className="rounded-full bg-primary-500/10 px-2 py-0.5 text-[10px] font-bold text-primary-600">
+                Insumo interno
+              </span>
+            )}
+            {esInsumo && p.rendimiento > 1 && (
+              <span className="cifra rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold">
+                Rinde x{p.rendimiento}
+              </span>
+            )}
+            {esPreparado && (
+              <span className="rounded-full bg-accent-500/15 px-2 py-0.5 text-[10px] font-bold text-accent-700 dark:text-accent-400">
+                Preparado
+              </span>
+            )}
             </p>
             <p className="truncate text-xs text-muted-foreground">
               {detalle || "Sin marca ni presentación"}
@@ -147,11 +190,25 @@ function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, o
 
       {/* Precio y costo */}
       <TableCell>
-        <p className="cifra text-base font-bold">{formatCOP(p.precio)}</p>
-        {esAdmin && (
+        {esInsumo ? (
           <>
-            <p className="cifra text-xs text-muted-foreground">Costo: {formatCOP(p.costoCompra)}</p>
-            <MargenBadge p={p} />
+            <p className="text-sm font-bold">Uso interno (Cocina/Barra)</p>
+            {esAdmin && (
+              <p className="cifra text-xs text-muted-foreground">
+                Costo: {formatCOP(p.costoCompra)}
+                {p.rendimiento > 1 && ` · ${formatCOP(p.costoCompra / p.rendimiento)} por porción`}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="cifra text-base font-bold">{formatCOP(p.precio)}</p>
+            {esAdmin && (
+              <>
+                <p className="cifra text-xs text-muted-foreground">Costo: {formatCOP(p.costoCompra)}</p>
+                <MargenBadge p={p} />
+              </>
+            )}
           </>
         )}
       </TableCell>
@@ -190,6 +247,13 @@ function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, o
             </span>
           </div>
         )}
+        {sugerencia && (
+        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Lightbulb className="h-3 w-3 shrink-0" />
+          Sugerido por insumos:{" "}
+          <span className="cifra font-semibold">~{sugerencia.porcionesSugeridas}</span> porciones
+        </p>
+      )}
       </TableCell>
 
       {/* Total global */}
@@ -243,6 +307,7 @@ export default function InventarioPage() {
   const [soloBajo, setSoloBajo] = useState(false)
   const [verInactivos, setVerInactivos] = useState(false)
   const [modal, setModal] = useState({ abierto: false, producto: null })
+  const [tipoFiltro, setTipoFiltro] = useState("todos")
 
   // Listos para conectarse en la Etapa 4.2 (ingreso de compras y asistente de traslados)
   // eslint-disable-next-line no-unused-vars
@@ -253,6 +318,26 @@ export default function InventarioPage() {
   const global = sucursalActiva === "todas"
   const esAdmin = rol === "admin"
   const mostrarInactivos = esAdmin && verInactivos
+  // El cajero solo ve productos que existen en su sede (nunca ve ítems exclusivos del restaurante u otra sede)
+  const productosAlcance = useMemo(
+    () =>
+      esAdmin
+        ? productos
+        : productos.filter((p) => typeof p.stock?.[sucursalActiva] === "number"),
+    [productos, esAdmin, sucursalActiva]
+  )
+
+  // Solo muestra los filtros de Insumos / Platos preparados si en el alcance actual existen esos ítems
+  const mostrarFiltroTipo = useMemo(
+    () =>
+      productosAlcance.some((p) => {
+        if (p.activo === false) return false
+        if (!global && typeof p.stock?.[sucursalActiva] !== "number") return false
+        return p.tipoItem === "insumo" || p.tipoItem === "preparado"
+      }),
+    [productosAlcance, global, sucursalActiva]
+  )
+  const tipoFiltroEfectivo = mostrarFiltroTipo ? tipoFiltro : "todos"
 
   // Sedes visibles según el alcance actual
   const sucursalesAlcance = useMemo(
@@ -290,8 +375,11 @@ export default function InventarioPage() {
         const u = p.stock?.[s.id]
         if (typeof u !== "number") continue
         unidades += u
-        venta += p.precio * u
-        costo += (p.costoCompra ?? 0) * u
+        // Los insumos no se venden: no entran a la valorización ni a la ganancia potencial
+        if ((p.tipoItem ?? "venta_directa") !== "insumo") {
+          venta += p.precio * u
+          costo += (p.costoCompra ?? 0) * u
+        }
         const e = estadoStock(u, minimo)
         if (e === "agotado" || e === "critico" || e === "bajo") {
           alertas += 1
@@ -317,25 +405,26 @@ export default function InventarioPage() {
   // ---------- Opciones de filtros ----------
   const categoriasOpciones = useMemo(
     () =>
-      [...new Set(productos.map((p) => p.categoria).filter(Boolean))].sort((a, b) =>
+      [...new Set(productosAlcance.map((p) => p.categoria).filter(Boolean))].sort((a, b) =>
         a.localeCompare(b, "es")
       ),
-    [productos]
+    [productosAlcance]
   )
   const marcasOpciones = useMemo(
     () =>
-      [...new Set(productos.map((p) => p.marca).filter(Boolean))].sort((a, b) =>
+      [...new Set(productosAlcance.map((p) => p.marca).filter(Boolean))].sort((a, b) =>
         a.localeCompare(b, "es")
       ),
-    [productos]
+    [productosAlcance]
   )
 
   // ---------- Lista filtrada ----------
   const lista = useMemo(() => {
     const q = normalizar(busqueda.trim())
-    const filtrada = productos.filter((p) => {
+    const filtrada = productosAlcance.filter((p) => {
       const inactivo = p.activo === false
       if (mostrarInactivos ? !inactivo : inactivo) return false
+      if (!coincideTipo(p, tipoFiltroEfectivo)) return false
       if (categoriaFiltro !== "todas" && p.categoria !== categoriaFiltro) return false
       if (marcaFiltro === "__sin__" && p.marca) return false
       if (marcaFiltro !== "todas" && marcaFiltro !== "__sin__" && p.marca !== marcaFiltro) return false
@@ -358,10 +447,10 @@ export default function InventarioPage() {
       return a.nombre.localeCompare(b.nombre, "es")
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productos, busqueda, categoriaFiltro, marcaFiltro, soloBajo, verInactivos, sucursalesAlcance, global, sucursalActiva])
+  }, [productosAlcance, busqueda, categoriaFiltro, marcaFiltro, soloBajo, mostrarInactivos, tipoFiltroEfectivo, sucursalesAlcance, global, sucursalActiva])
 
   const hayFiltros =
-    busqueda !== "" || categoriaFiltro !== "todas" || marcaFiltro !== "todas" || soloBajo || verInactivos
+    busqueda !== "" || categoriaFiltro !== "todas" || marcaFiltro !== "todas" || soloBajo || mostrarInactivos || tipoFiltro !== "todos"
 
   const limpiarFiltros = () => {
     setBusqueda("")
@@ -369,6 +458,7 @@ export default function InventarioPage() {
     setMarcaFiltro("todas")
     setSoloBajo(false)
     setVerInactivos(false)
+    setTipoFiltro("todos")
   }
 
   // ---------- Traslados ----------
@@ -635,6 +725,24 @@ export default function InventarioPage() {
                     />
                   </div>
 
+                  {mostrarFiltroTipo && (
+                  <div role="group" aria-label="Tipo de ítem" className="flex flex-wrap gap-2">
+                    {FILTROS_TIPO.map((t) => (
+                      <Button
+                        key={t.id}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-pressed={tipoFiltro === t.id}
+                        className={cn(tipoFiltro === t.id && CTA)}
+                        onClick={() => setTipoFiltro(t.id)}
+                      >
+                        {t.label}
+                      </Button>
+                    ))}
+                  </div>
+                  )}
+
                   <div className="flex flex-wrap items-center gap-3">
                     <Select value={categoriaFiltro} onValueChange={setCategoriaFiltro}>
                       <SelectTrigger className="w-full sm:w-52" aria-label="Filtrar por categoría">
@@ -702,7 +810,7 @@ export default function InventarioPage() {
 
               <p className="text-sm text-muted-foreground">
                 Mostrando <span className="cifra font-semibold text-foreground">{lista.length}</span> de{" "}
-                <span className="cifra font-semibold text-foreground">{productos.length}</span> productos
+                <span className="cifra font-semibold text-foreground">{productosAlcance.length}</span> productos
               </p>
 
               {/* Tabla multisucursal */}
@@ -747,6 +855,7 @@ export default function InventarioPage() {
                             sucursalActiva={sucursalActiva}
                             onEditar={abrirEditar}
                             onAlternar={alternarActivo}
+                            productosMap={productoPorId}
                           />
                         ))
                       )}

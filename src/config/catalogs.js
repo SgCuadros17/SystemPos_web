@@ -52,8 +52,8 @@ import {
 // ---------------------------------------------------------------------
 const TM = ["tienda", "minimercado"]
 const FE = ["ferreteria"]
-const RE = ["restaurante"]
-const TODOS = ["tienda", "minimercado", "ferreteria", "restaurante"]
+const RE = ["restaurante", "bar"]
+const TODOS = ["tienda", "minimercado", "ferreteria", "restaurante", "bar"]
 
 const ico = (id, label, icon, gremios) => ({ id, label, icon, gremios })
 
@@ -70,7 +70,7 @@ export const ICONOS_CATALOGO = [
   ico("croissant", "Panadería", Croissant, [...TM, ...RE]),
   ico("beef", "Carnes", Beef, [...TM, ...RE]),
   ico("drumstick", "Pollo", Drumstick, [...TM, ...RE]),
-  ico("apple", "Frutas", Apple, TM),
+  ico("apple", "Frutas y verduras", Apple, [...TM, ...RE]),
   ico("coffee", "Café", Coffee, [...TM, ...RE]),
   ico("candy", "Dulces y snacks", Candy, TM),
   ico("sparkles", "Aseo y limpieza", Sparkles, TM),
@@ -119,6 +119,12 @@ const CATEGORIAS_TIENDA = [
   "Despensa", "Lácteos", "Bebidas", "Panadería", "Carnes",
   "Frutas y verduras", "Aseo", "Dulces y snacks", "Cuidado personal", "Otros",
 ]
+const CATEGORIAS_RESTAURANTE = [
+  "Platos fuertes", "Comidas rápidas", "Carnes y parrilla", "Sopas y menú del día",
+  "Entradas y picadas", "Snacks y pasabocas", "Postres", "Bebidas y gaseosas",
+  "Jugos y granizados", "Cócteles", "Cervezas y licores", "Cafetería",
+  "Insumos de cocina y barra", "Otros",
+]
 
 export const CATEGORIAS_POR_GREMIO = {
   tienda: CATEGORIAS_TIENDA,
@@ -132,10 +138,8 @@ export const CATEGORIAS_POR_GREMIO = {
     "Pinturas y acabados", "Construcción", "Cerrajería", "Iluminación",
     "Adhesivos y selladores", "Seguridad industrial", "Otros",
   ],
-  restaurante: [
-    "Comida", "Platos fuertes", "Entradas", "Sopas", "Ensaladas", "Postres",
-    "Bebidas", "Jugos y batidos", "Cafetería", "Adicionales", "Otros",
-  ],
+  restaurante: CATEGORIAS_RESTAURANTE,
+  bar: CATEGORIAS_RESTAURANTE,
 }
 
 // ---------------------------------------------------------------------
@@ -143,7 +147,13 @@ export const CATEGORIAS_POR_GREMIO = {
 // ---------------------------------------------------------------------
 const PRESENTACIONES_TIENDA = [
   "Unidad", "Libra (500g)", "1kg", "250g", "1L", "1.5L",
-  "Panal x30", "Medio panal", "Media caja", "Caja", "Six-pack", "Sobre",
+  "Panal x30", "Medio panal", "Media caja", "Caja", "Six-pack", "Sobre",  
+]
+
+const PRESENTACIONES_RESTAURANTE = [
+  "Personal", "Combo", "Porción", "Media porción", "Familiar", "Vaso 16oz",
+  "Jarra", "Botella", "Media botella", "Trago / Shot", "Unidad", "Paquete",
+  "Libra (500g)", "1kg",
 ]
 
 export const PRESENTACIONES_POR_GREMIO = {
@@ -153,10 +163,8 @@ export const PRESENTACIONES_POR_GREMIO = {
     "Unidad", "Metro", "Caja x100", "Bolsa x50", "Galón",
     "Cuñete", "1/4 Galón", "Rollo", "Par", "Kilo",
   ],
-  restaurante: [
-    "Personal", "Combo", "Porción", "Media porción",
-    "Familiar", "Vaso 16oz", "Jarra", "Botella",
-  ],
+  restaurante: PRESENTACIONES_RESTAURANTE,
+  bar: PRESENTACIONES_RESTAURANTE,
 }
 
 // ---------------------------------------------------------------------
@@ -177,3 +185,19 @@ export const categoriasParaGremio = (tipoNegocio) =>
 
 export const presentacionesParaGremio = (tipoNegocio) =>
   PRESENTACIONES_POR_GREMIO[tipoNegocio] ?? PRESENTACIONES_POR_GREMIO.tienda
+
+// Tipos de ítem del catálogo (productos.tipoItem)
+export const TIPOS_ITEM = {
+  venta_directa: {
+    label: "Venta directa",
+    descripcion: "Se compra y se vende tal cual: gaseosas, cervezas, snacks, abarrotes.",
+  },
+  insumo: {
+    label: "Insumo interno",
+    descripcion: "Materia prima de cocina o barra: pan, carne, lechuga, limón. No se cobra en caja.",
+  },
+  preparado: {
+    label: "Plato / Cóctel preparado",
+    descripcion: "Producto del menú que armas con tus insumos o cocinas por lotes.",
+  },
+}

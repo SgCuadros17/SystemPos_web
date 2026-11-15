@@ -1,10 +1,25 @@
-import { useMemo, useRef, useState } from "react"
-import { Camera, LayoutGrid, Trash2, TrendingDown, Upload } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  AlertTriangle,
+  Calculator,
+  Camera,
+  LayoutGrid,
+  Lightbulb,
+  Package,
+  Plus,
+  ShoppingBag,
+  Trash2,
+  TrendingDown,
+  Upload,
+  Utensils,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { usePOS, formatCOP, construirNombreUnificado } from "@/context/POSContext"
+import { usePOS, formatCOP, construirNombreUnificado, sugerirCalculoReceta } from "@/context/POSContext"
 import {
   ICONOS_CATALOGO,
+  TIPOS_ITEM,
   categoriasParaGremio,
   iconosParaGremio,
   obtenerIconoProducto,
@@ -32,6 +47,12 @@ const OTRA = "__otra__"
 const MAX_FOTO = 2 * 1024 * 1024 // 2 MB
 
 const pct = (n) => `${n.toFixed(1).replace(".", ",")}%`
+const OPCIONES_TIPO = [
+  { id: "venta_directa", icon: ShoppingBag },
+  { id: "insumo", icon: Package },
+  { id: "preparado", icon: Utensils },
+]
+const nuevaClave = () => crypto.randomUUID?.() ?? String(Math.random())
 
 // ---------------------------------------------------------------------
 // Miniatura reutilizable (foto o icono camaleón). También la usa InventarioPage.
@@ -119,7 +140,7 @@ function Seccion({ titulo, children }) {
 // ---------------------------------------------------------------------
 // Formulario (se monta al abrir el diálogo, así siempre arranca limpio)
 // ---------------------------------------------------------------------
-function Formulario({ producto, sucursalInicial, onCerrar }) {
+function Formulario({ producto, sucursalInicial, onCerrar, cierreRef }) {
   const { negocio, sucursales, productos, guardarProducto, solicitarAutorizacion } = usePOS()
   const p = producto
   const tipo = negocio?.tipo_negocio
@@ -136,9 +157,14 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
     stockMinimo: String(p?.stockMinimo ?? 5),
     icono: p?.icono ?? "package",
     imagenUrl: p?.imagenUrl ?? "",
+    tipoItem: p?.tipoItem ?? "venta_directa",
+    rendimiento: String(p?.rendimiento ?? 1),
   }))
   const set = (campo, valor) => setF((x) => ({ ...x, [campo]: valor }))
   const onInput = (campo) => (e) => set(campo, e.target.value)
+  const esInsumo = f.tipoItem === "insumo"
+  const esPreparado = f.tipoItem === "preparado"
+  const mostrarTipos = tipo !== "ferreteria" || f.tipoItem !== "venta_directa"
 
   const [intentado, setIntentado] = useState(false)
 
@@ -176,10 +202,75 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
     return c
   })
 
+    // Receta sugerida (solo plato preparado) y calculadora de rendimiento (solo insumo)
+  const [receta, setReceta] = useState(() =>
+    (p?.receta ?? []).map((r) => ({ k: nuevaClave(), insumoId: r.insumoId, cantidad: String(r.cantidad) }))
+  )
+  const [compradas, setCompradas] = useState("")
+  const [sedeCalcId, setSedeCalcId] = useState("")
+
+  const cambiarTipo = (id) => {
+    set("tipoItem", id)
+    // Un producto nuevo: el plato preparado arranca sin conteo manual; los demás en las sedes de la vista
+    if (!p) {
+      setManejada(
+        Object.fromEntries(
+          sucursales.map((s) => [
+            s.id,
+            id !== "preparado" && (sucursalInicial === "todas" || sucursalInicial === s.id),
+          ])
+        )
+      )
+    }
+  }
+  const agregarIngrediente = () =>
+    setReceta((l) => [...l, { k: nuevaClave(), insumoId: "", cantidad: "1" }])
+  const cambiarIngrediente = (k, campo, valor) =>
+    setReceta((l) => l.map((r) => (r.k === k ? { ...r, [campo]: valor } : r)))
+  const quitarIngrediente = (k) => setReceta((l) => l.filter((r) => r.k !== k))
+
   const marcas = useMemo(
     () => [...new Set(productos.map((x) => x.marca).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es")),
     [productos]
   )
+
+    // Ingredientes posibles: cualquier ítem activo que no sea un plato preparado ni este mismo producto
+  const candidatos = useMemo(
+    () =>
+      productos
+        .filter((x) => x.activo !== false && x.tipoItem !== "preparado" && x.id !== p?.id)
+        .sort(
+          (a, b) =>
+            (a.tipoItem === "insumo" ? 0 : 1) - (b.tipoItem === "insumo" ? 0 : 1) ||
+            a.nombre.localeCompare(b.nombre, "es")
+        ),
+    [productos, p]
+  )
+  const mapaProductos = useMemo(() => new Map(productos.map((x) => [x.id, x])), [productos])
+
+  // ---------- ¿Hay cambios sin guardar? ----------
+  const huellaImagen = f.imagenUrl
+    ? `${f.imagenUrl.length}:${f.imagenUrl.slice(0, 40)}:${f.imagenUrl.slice(-40)}`
+    : ""
+  const huella = JSON.stringify([
+    { ...f, imagenUrl: huellaImagen },
+    manejada,
+    cantidades,
+    categoriaOtra,
+    receta.map((r) => [r.insumoId, r.cantidad]),
+  ])
+  const [huellaInicial] = useState(huella) // foto del formulario al abrirlo
+  const hayCambios = huella !== huellaInicial
+  const [confirmarSalida, setConfirmarSalida] = useState(false)
+  const solicitarCierre = () => (hayCambios ? setConfirmarSalida(true) : onCerrar())
+
+  // El contenedor (X, Esc, clic afuera) pregunta aquí antes de cerrar
+  useEffect(() => {
+    cierreRef.current = solicitarCierre
+    return () => {
+      cierreRef.current = null
+    }
+  })
 
   // ---------- Cálculos en vivo ----------
   const nombreUnificado = construirNombreUnificado({
@@ -187,12 +278,28 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
     marca: f.marca.trim(),
     presentacion: f.presentacion.trim(),
   })
-  const precioN = f.precio === "" ? null : Number(f.precio)
+  const precioN = f.precio === "" ? (esInsumo ? 0 : null) : Number(f.precio)
   const costoN = f.costoCompra === "" ? 0 : Number(f.costoCompra)
   const minimoN = f.stockMinimo === "" ? NaN : Number(f.stockMinimo)
   const utilidad = precioN !== null && Number.isFinite(precioN) ? precioN - costoN : null
   const margen = utilidad !== null && precioN > 0 ? (utilidad / precioN) * 100 : null
-  const perdida = utilidad !== null && utilidad < 0
+  const perdida = !esInsumo && utilidad !== null && utilidad < 0
+
+  // Rendimiento y calculadora (insumo)
+  const rendN = f.rendimiento === "" ? 1 : Number(f.rendimiento)
+  const compradasN = Number(compradas)
+  const totalPorciones =
+    Number.isFinite(compradasN) && compradasN > 0 && rendN > 0 ? Math.floor(compradasN * rendN) : 0
+  const sedesManejadas = sucursales.filter((s) => manejada[s.id])
+  const sedeCalc = sedesManejadas.find((s) => s.id === sedeCalcId) ?? sedesManejadas[0] ?? null
+
+  // Sugerencia de receta (plato preparado): solo guía, nunca bloquea
+  const recetaValida = receta
+    .filter((r) => r.insumoId && Number(r.cantidad) > 0)
+    .map((r) => ({ insumoId: r.insumoId, cantidad: Number(r.cantidad) }))
+  const sugerencia = esPreparado
+    ? sugerirCalculoReceta({ receta: recetaValida }, mapaProductos, sucursalInicial)
+    : null
 
   // ---------- Validaciones ----------
   const barras = f.codigoBarras.trim()
@@ -204,6 +311,8 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
         : "",
     costo: !Number.isFinite(costoN) || costoN < 0 ? "El costo no puede ser negativo" : "",
     minimo: !Number.isInteger(minimoN) || minimoN < 0 ? "Escribe un entero de 0 o más" : "",
+    rendimiento:
+      esInsumo && (!Number.isFinite(rendN) || rendN <= 0) ? "Debe ser mayor a 0" : "",
     barras:
       barras && productos.some((x) => x.id !== p?.id && x.codigoBarras === barras)
         ? "Ya existe otro producto con este código"
@@ -234,6 +343,7 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
   // ---------- Guardar ----------
   const guardar = () => {
     setIntentado(true)
+    setConfirmarSalida(false)
     if (hayErrores) {
       toast.error("Revisa los campos marcados en rojo")
       return
@@ -258,6 +368,9 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
       icono: f.icono,
       imagenUrl: imagenEfectiva || null,
       stockMinimo: minimoN,
+      tipoItem: f.tipoItem,
+      rendimiento: rendN,
+      receta: esPreparado ? recetaValida : [],
       stock,
     }
 
@@ -317,10 +430,47 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
               {f.categoria.trim() || "Sin categoría"}
             </span>
           </div>
-          <p className="cifra shrink-0 text-lg font-bold">
-            {formatCOP(precioN !== null && Number.isFinite(precioN) ? precioN : 0)}
-          </p>
+          {esInsumo ? (
+            <p className="shrink-0 text-sm font-bold text-muted-foreground">Uso interno</p>
+          ) : (
+            <p className="cifra shrink-0 text-lg font-bold">
+              {formatCOP(precioN !== null && Number.isFinite(precioN) ? precioN : 0)}
+            </p>
+          )}
         </div>
+
+        {mostrarTipos && (
+          <Seccion titulo="Tipo de producto">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {OPCIONES_TIPO.map(({ id, icon: Icono }) => {
+                const activo = f.tipoItem === id
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={activo}
+                    onClick={() => cambiarTipo(id)}
+                    className={cn(
+                      "flex min-w-0 flex-col gap-2 rounded-xl border-2 p-3 text-left transition-colors",
+                      activo ? "border-primary bg-primary-500/10" : "border-border hover:border-primary/50"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "w-fit rounded-lg p-2",
+                        activo ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      <Icono className="h-4 w-4" />
+                    </span>
+                    <span className="text-sm font-bold">{TIPOS_ITEM[id].label}</span>
+                    <span className="text-xs text-muted-foreground">{TIPOS_ITEM[id].descripcion}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </Seccion>
+        )}
 
         {/* Identidad */}
         <Seccion titulo="Identidad del producto">
@@ -411,7 +561,7 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
         </Seccion>
 
         {/* Precios */}
-        <Seccion titulo="Precios, rentabilidad y código">
+        <Seccion titulo={esInsumo ? "Costo de compra y código" : "Precios, rentabilidad y código"}>
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo etiqueta="Costo de compra (COP)" error={ver(errores.costo)}>
               <Input
@@ -424,6 +574,7 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
                 className="cifra"
               />
             </Campo>
+            {!esInsumo && (
             <Campo etiqueta="Precio de venta (COP)" error={ver(errores.precio)}>
               <Input
                 type="number"
@@ -435,12 +586,14 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
                 className="cifra"
               />
             </Campo>
+            )}
           </div>
 
           <div
             className={cn(
               "grid grid-cols-2 gap-3 rounded-xl border p-3",
-              perdida ? "border-red-500/40 bg-red-500/10" : "bg-muted/40"
+              perdida ? "border-red-500/40 bg-red-500/10" : "bg-muted/40",
+              esInsumo && "hidden"
             )}
           >
             <div className="min-w-0">
@@ -488,6 +641,183 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
             </Campo>
           </div>
         </Seccion>
+
+        {/* Rendimiento (insumo) */}
+        {esInsumo && (
+          <Seccion titulo="Rendimiento del insumo (opcional)">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Campo
+                etiqueta="Rendimiento por unidad"
+                error={ver(errores.rendimiento)}
+                ayuda="¿Cuántas porciones salen de 1 unidad o paquete? Déjalo en 1 si no aplica."
+              >
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  value={f.rendimiento}
+                  onChange={onInput("rendimiento")}
+                  className="cifra"
+                />
+              </Campo>
+              <div className="min-w-0 space-y-1 rounded-xl border bg-muted/40 p-3">
+                <p className="text-xs text-muted-foreground">Costo por porción</p>
+                <p className="cifra text-lg font-bold">
+                  {formatCOP(Number.isFinite(costoN) && rendN > 0 ? costoN / rendN : 0)}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-xl border p-4">
+              <p className="flex items-center gap-2 text-sm font-bold">
+                <Calculator className="h-4 w-4 text-primary-600" />
+                Calculadora rápida
+              </p>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span>Compré</span>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  aria-label="Unidades o paquetes comprados"
+                  value={compradas}
+                  onChange={(e) => setCompradas(e.target.value)}
+                  className="cifra w-24"
+                />
+                <span>× salen</span>
+                <span className="cifra font-bold">{Number.isFinite(rendN) ? rendN : 0}</span>
+                <span>de cada uno =</span>
+                <span className="cifra text-lg font-bold">{totalPorciones}</span>
+                <span>porciones</span>
+              </div>
+
+              {totalPorciones > 0 && sedeCalc && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {sedesManejadas.length > 1 && (
+                    <Select value={sedeCalc.id} onValueChange={setSedeCalcId}>
+                      <SelectTrigger className="w-44" aria-label="Sede donde aplicar el resultado">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sedesManejadas.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setCantidades((c) => ({ ...c, [sedeCalc.id]: String(totalPorciones) }))}
+                  >
+                    Poner {totalPorciones} como stock en {sedeCalc.nombre}
+                  </Button>
+                </div>
+              )}
+              {totalPorciones > 0 && !sedeCalc && (
+                <p className="text-xs text-muted-foreground">
+                  Activa una sede en “Stock por sucursal” para aplicar este resultado.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Con rendimiento mayor a 1, el stock de este insumo se cuenta en porciones.
+              </p>
+            </div>
+          </Seccion>
+        )}
+
+        {/* Receta sugerida (plato / cóctel preparado) */}
+        {esPreparado && (
+          <Seccion titulo="Receta sugerida de insumos (Opcional · Configurable a tu medida)">
+            <div className="space-y-2">
+              {receta.map((r) => (
+                <div key={r.k} className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      value={r.insumoId}
+                      onValueChange={(v) => cambiarIngrediente(r.k, "insumoId", v)}
+                    >
+                      <SelectTrigger className="w-full" aria-label="Insumo">
+                        <SelectValue placeholder="Elige un insumo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {candidatos.map((x) => (
+                          <SelectItem key={x.id} value={x.id}>
+                            {x.nombreUnificado}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="any"
+                    aria-label="Cantidad por plato"
+                    value={r.cantidad}
+                    onChange={(e) => cambiarIngrediente(r.k, "cantidad", e.target.value)}
+                    className="cifra w-20 text-right"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Quitar insumo"
+                    onClick={() => quitarIngrediente(r.k)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" onClick={agregarIngrediente}>
+                <Plus className="h-4 w-4" />
+                Agregar insumo
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                La cantidad es cuántas unidades (o porciones) gasta cada plato. Las filas incompletas se ignoran.
+              </p>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-primary-500/30 bg-primary-500/5 p-4">
+              <p className="flex items-center gap-2 text-sm font-bold">
+                <Lightbulb className="h-4 w-4 text-primary-600" />
+                Sugerencia del sistema según estos insumos
+              </p>
+              {sugerencia ? (
+                <>
+                  <p className="text-sm">
+                    Costo estimado <span className="cifra font-bold">{formatCOP(sugerencia.costoSugerido)}</span>
+                    {" · "}Alcanzaría aprox. para{" "}
+                    <span className="cifra font-bold">~{sugerencia.porcionesSugeridas}</span> porciones
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {sucursalInicial === "todas" ? "Sumando el stock de todas las sedes" : "Según el stock de la sede actual"}
+                    {sugerencia.insumoLimitante && ` · el que limita: ${sugerencia.insumoLimitante.nombre}`}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => set("costoCompra", String(sugerencia.costoSugerido))}
+                  >
+                    Usar costo sugerido
+                  </Button>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Agrega insumos para ver el costo estimado y las porciones que alcanzarían.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Es solo una guía: tu costo, tu precio y tus porciones listas siempre mandan.
+              </p>
+            </div>
+          </Seccion>
+        )}
 
         {/* Imagen */}
         <Seccion titulo="Imagen del producto">
@@ -599,7 +929,13 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
         </Seccion>
 
         {/* Stock por sucursal */}
-        <Seccion titulo="Stock por sucursal">
+        <Seccion titulo={esPreparado ? "Porciones listas por sede (opcional)" : "Stock por sucursal"}>
+          {esPreparado && (
+            <p className="text-xs text-muted-foreground">
+              Actívalo solo si cocinas por lotes (ej. “hoy saqué 20 porciones de costillas BBQ”). Si no,
+              guíate por la sugerencia de insumos.
+            </p>
+          )}
           <div className="space-y-2">
             {sucursales.map((s) => (
               <div key={s.id} className="rounded-xl border p-3">
@@ -647,14 +983,38 @@ function Formulario({ producto, sucursalInicial, onCerrar }) {
       </div>
 
       {/* Pie fijo */}
-      <div className="flex shrink-0 flex-col-reverse gap-2 border-t bg-card p-4 sm:flex-row sm:justify-end sm:p-6">
-        <Button type="button" variant="outline" onClick={onCerrar}>
-          Cancelar
-        </Button>
-        <Button type="submit" className={CTA}>
-          {p ? "Guardar cambios" : "Crear producto"}
-        </Button>
-      </div>
+      {confirmarSalida ? (
+        <div
+          role="alertdialog"
+          aria-label="Cambios sin guardar"
+          className="flex shrink-0 flex-col gap-3 border-t bg-amber-500/10 p-4 sm:p-6"
+        >
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+            Tienes cambios sin guardar. ¿Qué deseas hacer?
+          </p>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setConfirmarSalida(false)}>
+              Seguir editando
+            </Button>
+            <Button type="button" variant="outline" className="text-destructive" onClick={onCerrar}>
+              Salir sin guardar
+            </Button>
+            <Button type="button" className={CTA} onClick={guardar}>
+              Guardar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex shrink-0 flex-col-reverse gap-2 border-t bg-card p-4 sm:flex-row sm:justify-end sm:p-6">
+          <Button type="button" variant="outline" onClick={solicitarCierre}>
+            Cancelar
+          </Button>
+          <Button type="submit" className={CTA}>
+            {p ? "Guardar cambios" : "Crear producto"}
+          </Button>
+        </div>
+      )}
     </form>
   )
 }
@@ -671,15 +1031,25 @@ export default function ProductFormModal({
   producto = null,
   sucursalInicial = "todas",
 }) {
+  const cierreRef = useRef(null)
+
   return (
     <Dialog
       open={abierto}
       onOpenChange={(o) => {
-        if (!o) onCerrar()
+        if (o) return
+        // X, Esc o clic afuera: el formulario decide si pregunta antes de cerrar
+        if (cierreRef.current) cierreRef.current()
+        else onCerrar()
       }}
     >
       <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <Formulario producto={producto} sucursalInicial={sucursalInicial} onCerrar={onCerrar} />
+        <Formulario
+          producto={producto}
+          sucursalInicial={sucursalInicial}
+          onCerrar={onCerrar}
+          cierreRef={cierreRef}
+        />
       </DialogContent>
     </Dialog>
   )

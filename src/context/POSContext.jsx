@@ -30,6 +30,41 @@ export const construirNombreUnificado = (p) =>
 
 const conNombreUnificado = (p) => ({ ...p, nombreUnificado: construirNombreUnificado(p) })
 
+// Sugerencia (nunca obliga): costo y porciones estimadas según la receta que configuró el admin.
+// productosMap: Map<id, producto> u objeto { id: producto }. sucursalId: id de sede o "todas".
+// Convención: el stock de un insumo con rendimiento > 1 se cuenta en PORCIONES y su costoCompra
+// es el de la unidad comprada, por eso costo por porción = costoCompra / rendimiento.
+export const sugerirCalculoReceta = (producto, productosMap, sucursalId = "todas") => {
+  const receta = producto?.receta ?? []
+  const buscar = (id) => (productosMap instanceof Map ? productosMap.get(id) : productosMap?.[id])
+  let costoSugerido = 0
+  let porciones = Infinity
+  let insumoLimitante = null
+  let usados = 0
+
+  for (const linea of receta) {
+    const insumo = buscar(linea.insumoId)
+    const cantidad = Number(linea.cantidad)
+    if (!insumo || !(cantidad > 0)) continue
+    usados += 1
+    const rendimiento = Number(insumo.rendimiento) > 0 ? Number(insumo.rendimiento) : 1
+    costoSugerido += ((Number(insumo.costoCompra) || 0) / rendimiento) * cantidad
+
+    const disponible =
+      sucursalId && sucursalId !== "todas"
+        ? insumo.stock?.[sucursalId] ?? 0
+        : Object.values(insumo.stock ?? {}).reduce((suma, u) => suma + u, 0)
+    const alcanza = Math.floor(disponible / cantidad)
+    if (alcanza < porciones) {
+      porciones = alcanza
+      insumoLimitante = insumo
+    }
+  }
+
+  if (usados === 0) return null
+  return { costoSugerido: Math.round(costoSugerido), porcionesSugeridas: porciones, insumoLimitante }
+}
+
 // Fecha ISO de hace N días (misma hora actual)
 const fechaHace = (dias) => {
   const d = new Date()
@@ -54,19 +89,24 @@ const fechaDemo = (dias, n) => {
 
 // ---------- Datos mock del negocio demo ----------
 export const SUCURSALES = [
-  { id: "s1", nombre: "Tienda 1", direccion: "Calle 10 #20-30", telefono: "300 111 0001", activa: true },
-  { id: "s2", nombre: "Tienda 2", direccion: "Carrera 45 #12-18", telefono: "300 111 0002", activa: true },
-  { id: "s3", nombre: "Restaurante", direccion: "Avenida Principal #5-60", telefono: "300 111 0003", activa: true },
+  { id: "s1", nombre: "Tienda 1", direccion: "Calle 10 #20-30", telefono: "300 111 0001", activa: true, numMesas: 0 },
+  { id: "s2", nombre: "Tienda 2", direccion: "Carrera 45 #12-18", telefono: "300 111 0002", activa: true, numMesas: 0 },
+  { id: "s3", nombre: "Restaurante", direccion: "Avenida Principal #5-60", telefono: "300 111 0003", activa: true, numMesas: 8 },
 ]
 
 // Producto = productos + inventario_sucursal (stock por sede).
 // stock: { idSucursal: unidades }. Si una sede no maneja el producto, no tiene clave.
-const prod = (id, nombre, marca, presentacion, categoria, precio, costoCompra, codigoBarras, icono, stock) => ({
+const prod = (id, nombre, marca, presentacion, categoria, precio, costoCompra, codigoBarras, icono, stock, extra = {}) => ({
   id, nombre, marca, presentacion, categoria, precio, costoCompra, codigoBarras, icono,
   imagenUrl: null,
   stockMinimo: 5,
   activo: true,
   stock,
+  tipoItem: "venta_directa", // "venta_directa" | "insumo" | "preparado"
+  rendimiento: 1,
+  receta: [], // [{ insumoId, cantidad }]
+  disponibleMenu: true,
+  ...extra,
 })
 
 const PRODUCTOS_INICIALES = [
@@ -77,8 +117,13 @@ const PRODUCTOS_INICIALES = [
   prod("p5", "Gaseosa", "Postobón", "1.5L", "Bebidas", 6500, 4800, "770200100005", "cup-soda", { s1: 30, s2: 22, s3: 18 }),
   prod("p6", "Pan tajado", "Bimbo", "Bolsa 500g", "Panadería", 5800, 4300, "770200100006", "croissant", { s1: 15, s2: 9, s3: 2 }),
   prod("p7", "Café molido", "Sello Rojo", "250g", "Despensa", 9500, 7400, "770200100007", "coffee", { s1: 20, s2: 14, s3: 8 }),
-  prod("p8", "Hamburguesa artesanal", "De la casa", "Combo", "Comida", 18000, 9500, "", "sandwich", { s3: 45 }),
-  prod("p9", "Jugo natural", "De la casa", "Vaso 16oz", "Bebidas", 6000, 2500, "", "glass-water", { s3: 50 }),
+  prod("p8", "Hamburguesa artesanal", "De la casa", "Combo", "Comidas rápidas", 18000, 9500, "", "sandwich", { s3: 45 }, {
+    tipoItem: "preparado",
+    receta: [{ insumoId: "p10", cantidad: 1 }, { insumoId: "p6", cantidad: 1 }],
+  }),
+  prod("p9", "Jugo natural", "De la casa", "Vaso 16oz", "Jugos y granizados", 6000, 2500, "", "glass-water", { s3: 50 }),
+  prod("p10", "Carne de hamburguesa", "De la casa", "Porción 150g", "Insumos de cocina y barra", 0, 4800, "", "beef", { s3: 18 }, { tipoItem: "insumo" }),
+  prod("p11", "Limón Tahití", "Plaza", "Unidad", "Insumos de cocina y barra", 0, 300, "", "apple", { s3: 40 }, { tipoItem: "insumo" }),
 ].map(conNombreUnificado)
 
 const CLIENTES_INICIALES = [
@@ -417,6 +462,17 @@ export function POSProvider({ children }) {
       if (!Number.isFinite(precio) || precio < 0) throw new Error("El precio de venta no es válido")
       const costoCompra = aNumero(m.costoCompra, 0)
       if (costoCompra < 0) throw new Error("El costo de compra no puede ser negativo")
+      const tipoItem = ["venta_directa", "insumo", "preparado"].includes(m.tipoItem)
+        ? m.tipoItem
+        : "venta_directa"
+      const rendimientoN = aNumero(m.rendimiento, 1)
+      const rendimiento = rendimientoN > 0 ? rendimientoN : 1
+      const receta =
+        tipoItem === "preparado" && Array.isArray(m.receta)
+          ? m.receta
+              .map((r) => ({ insumoId: r.insumoId, cantidad: aNumero(r.cantidad, 0) }))
+              .filter((r) => r.insumoId && r.cantidad > 0 && r.insumoId !== existente?.id)
+          : []  
 
       const producto = {
         id: existente ? existente.id : datos.id || `p-${generarUUID()}`,
@@ -431,6 +487,10 @@ export function POSProvider({ children }) {
         imagenUrl: m.imagenUrl || null,
         stockMinimo: Math.max(0, Math.floor(aNumero(m.stockMinimo, 5))),
         activo: m.activo !== false,
+        tipoItem,
+        rendimiento,
+        receta,
+        disponibleMenu: m.disponibleMenu !== false,
         stock: { ...(limpio.stock ?? base.stock ?? {}) },
       }
 

@@ -25,7 +25,7 @@ const TIPOS = [
   { valor: "tienda", titulo: "Tienda", desc: "Abarrotes y venta al detal", icon: Store },
   { valor: "minimercado", titulo: "Minimercado", desc: "Varias categorías y alta rotación", icon: ShoppingBasket },
   { valor: "ferreteria", titulo: "Ferretería", desc: "Herramientas, tornillería y materiales", icon: Hammer },
-  { valor: "restaurante", titulo: "Restaurante", desc: "Platos, bebidas y consumo en sitio", icon: UtensilsCrossed },
+  { valor: "restaurante", titulo: "Restaurante / Bar", desc: "Platos, bebidas y consumo en sitio", icon: UtensilsCrossed },
 ]
 
 const PASOS = ["Negocio", "Sucursal", "Equipo"]

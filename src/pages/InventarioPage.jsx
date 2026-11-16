@@ -21,6 +21,8 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { usePOS, formatCOP, sugerirCalculoReceta, costoUnitarioStock } from "@/context/POSContext"
 import ProductFormModal, { MiniaturaProducto } from "@/components/inventory/ProductFormModal"
+import StockEntryModal from "@/components/inventory/StockEntryModal"
+import TransferModal from "@/components/inventory/TransferModal"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -123,7 +125,7 @@ function MargenBadge({ p }) {
   )
 }
 
-function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, onEditar, onAlternar, productosMap}) {
+function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, onEditar, onAlternar, productosMap, onIngreso }) {
   const minimo = p.stockMinimo ?? 5
   const tipo = p.tipoItem ?? "venta_directa"
   const esInsumo = tipo === "insumo"
@@ -260,6 +262,10 @@ function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, o
       {esAdmin && (
       <TableCell>
         <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" disabled={inactivo} onClick={() => onIngreso(p)}>
+              <Plus className="h-4 w-4" />
+              Stock
+            </Button>
           <Button size="sm" variant="outline" onClick={() => onEditar(p)}>
             <Pencil className="h-4 w-4" />
             Editar
@@ -302,11 +308,8 @@ export default function InventarioPage() {
   const [modal, setModal] = useState({ abierto: false, producto: null })
   const [tipoFiltro, setTipoFiltro] = useState("todos")
 
-  // Listos para conectarse en la Etapa 4.2 (ingreso de compras y asistente de traslados)
-  // eslint-disable-next-line no-unused-vars
-  const [modalIngresoAbierto, setModalIngresoAbierto] = useState(false)
-  // eslint-disable-next-line no-unused-vars
-  const [modalTrasladoAbierto, setModalTrasladoAbierto] = useState(false)
+  const [modalIngreso, setModalIngreso] = useState({ abierto: false, producto: null })
+  const [modalTraslado, setModalTraslado] = useState({ abierto: false, producto: null })
 
   const global = sucursalActiva === "todas"
   const esAdmin = rol === "admin"
@@ -499,18 +502,17 @@ export default function InventarioPage() {
       })
     })
 
-  // Etapa 4.2: aquí se abrirán IngresoCompraModal y TrasladoModal
-  const abrirIngreso = () =>
-    solicitarAutorizacion(() => {
-      setModalIngresoAbierto(true)
-      toast.info("El ingreso de compras con factura llega en la Etapa 4.2")
-    })
+    // Ingreso de compras / ajuste: solo admin (RLS inventario_insert_admin)
+  const abrirIngreso = (producto = null) =>
+    solicitarAutorizacion(() =>
+      setModalIngreso({ abierto: true, producto: producto?.id ? producto : null })
+    )
+  const cerrarIngreso = () => setModalIngreso((m) => ({ ...m, abierto: false }))
 
-  const abrirTraslado = () => {
-    setModalTrasladoAbierto(true)
-    setTab("traslados")
-    toast.info("El asistente de traslados de 4 pasos llega en la Etapa 4.2")
-  }
+  // Traslado: lo valida la sede de origen (el cajero puede despachar desde su sede)
+  const abrirTraslado = (producto = null) =>
+    setModalTraslado({ abierto: true, producto: producto?.id ? producto : null })
+  const cerrarTraslado = () => setModalTraslado((m) => ({ ...m, abierto: false }))
 
   const alternarSoloBajo = () => {
     setTab("catalogo")
@@ -557,13 +559,13 @@ export default function InventarioPage() {
               </SelectContent>
             </Select>
           )}
-          <Button variant="outline" onClick={abrirTraslado}>
+          <Button variant="outline" onClick={() => abrirTraslado()}>
             <ArrowLeftRight className="h-4 w-4" />
             Trasladar mercancía
           </Button>
           {esAdmin && (
             <>
-          <Button variant="outline" onClick={abrirIngreso}>
+          <Button variant="outline" onClick={() => abrirIngreso()}>
             <Plus className="h-4 w-4" />
             Ingresar compra
           </Button>
@@ -904,6 +906,7 @@ export default function InventarioPage() {
                             onEditar={abrirEditar}
                             onAlternar={alternarActivo}
                             productosMap={productoPorId}
+                            onIngreso={abrirIngreso}
                           />
                         ))
                       )}
@@ -926,7 +929,7 @@ export default function InventarioPage() {
                   {!global && ` · solo los de ${sucursalActual?.nombre ?? "la sede"}`}.
                 </CardDescription>
               </div>
-              <Button variant="outline" onClick={abrirTraslado} className="shrink-0">
+              <Button variant="outline" onClick={() => abrirTraslado()} className="shrink-0">
                 <ArrowLeftRight className="h-4 w-4" />
                 Nuevo traslado
               </Button>
@@ -1010,6 +1013,20 @@ export default function InventarioPage() {
         sucursalInicial={sucursalActiva}
         onCerrar={cerrarModal}
       />
+
+      <StockEntryModal
+        abierto={modalIngreso.abierto}
+        productoInicial={modalIngreso.producto}
+        sucursalInicial={sucursalActiva}
+        onCerrar={cerrarIngreso}
+      />
+
+      <TransferModal
+        abierto={modalTraslado.abierto}
+        productoInicial={modalTraslado.producto}
+        onCerrar={cerrarTraslado}
+      />
+
     </div>
   )
 }

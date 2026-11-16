@@ -30,6 +30,9 @@ export const construirNombreUnificado = (p) =>
 
 const conNombreUnificado = (p) => ({ ...p, nombreUnificado: construirNombreUnificado(p) })
 
+// Redondeo a 2 decimales (equivale a NUMERIC(12,2) en Supabase)
+export const redondear2 = (n) => Math.round((Number(n) || 0) * 100) / 100
+
 // Costo de 1 unidad almacenada en stock (si tiene rendimiento > 1, el stock está en porciones
 // y costoCompra es el del paquete/unidad comprada, por lo que 1 porción cuesta costoCompra / rendimiento)
 export const costoUnitarioStock = (p) => {
@@ -452,8 +455,9 @@ export function POSProvider({ children }) {
       if (!nombre) throw new Error("El nombre del producto es obligatorio")
       const precio = aNumero(m.precio, NaN)
       if (!Number.isFinite(precio) || precio < 0) throw new Error("El precio de venta no es válido")
-      const costoCompra = aNumero(m.costoCompra, 0)
-      if (costoCompra < 0) throw new Error("El costo de compra no puede ser negativo")
+      const costoBruto = aNumero(m.costoCompra, 0)
+      if (costoBruto < 0) throw new Error("El costo de compra no puede ser negativo")
+      const costoCompra = redondear2(costoBruto)
       const tipoItem = ["venta_directa", "insumo", "preparado"].includes(m.tipoItem)
         ? m.tipoItem
         : "venta_directa"
@@ -497,7 +501,9 @@ export function POSProvider({ children }) {
   )
 
   // Suma stock en una sede (ingreso de mercancía tras revisar la factura).
-  // nuevoCosto es opcional: si viene, actualiza costoCompra.
+  // Si viene nuevoCosto válido, actualiza costoCompra con el Costo Promedio Ponderado (CPP)
+  // entre el stock existente (todas las sedes) y la entrada nueva. El factor rendimiento se
+  // cancela: stock y entrada están en la misma unidad y ambos costos son por unidad de compra.
   // SUPABASE: update inventario_sucursal set stock_actual = stock_actual + n (mejor vía RPC).
   const ingresarStockSucursal = useCallback(
     ({ productoId, sucursalId, cantidadAgregada, nuevoCosto }) => {
@@ -514,14 +520,26 @@ export function POSProvider({ children }) {
         nuevoCosto !== undefined && nuevoCosto !== null && nuevoCosto !== "" &&
         Number.isFinite(Number(nuevoCosto)) && Number(nuevoCosto) >= 0
 
+      let costoCompra = producto.costoCompra
+      if (costoValido) {
+        const costoNuevo = Number(nuevoCosto)
+        const stockExistenteTotal = Object.values(producto.stock ?? {}).reduce(
+          (suma, u) => suma + (typeof u === "number" && u > 0 ? u : 0),
+          0
+        )
+        const costoAnterior = Number(producto.costoCompra) || 0
+        const costoPromedio =
+          stockExistenteTotal > 0 && costoAnterior > 0
+            ? (stockExistenteTotal * costoAnterior + cantidad * costoNuevo) /
+              (stockExistenteTotal + cantidad)
+            : costoNuevo
+        costoCompra = redondear2(costoPromedio)
+      }
+
       setProductosBase((lista) =>
         lista.map((p) =>
           p.id === productoId
-            ? {
-                ...p,
-                costoCompra: costoValido ? Number(nuevoCosto) : p.costoCompra,
-                stock: { ...p.stock, [sucursalId]: nuevoStock },
-              }
+            ? { ...p, costoCompra, stock: { ...p.stock, [sucursalId]: nuevoStock } }
             : p
         )
       )
@@ -587,6 +605,16 @@ export function POSProvider({ children }) {
         throw new Error(`Solo hay ${disponible} unidad(es) disponibles en ${origen.nombre}`)
       }
 
+      // --- DETERMINAR EL RESPONSABLE REAL ---
+      // Si hay un usuario logueado con nombre, usamos su nombre.
+      // Si no, determinamos si el rol activo o la vista actual es de cajero o admin.
+      let nombreResponsable = usuario?.nombre;
+      if (!nombreResponsable) {
+        // Verificamos si el rol es cajero o si estamos operando bajo la vista de cajero
+        const esCajeroActivo = rol === "cajero" || (window.location && window.location.pathname.includes("cajero"));
+        nombreResponsable = esCajeroActivo ? "Cajero Demo" : "Administrador Demo";
+      }
+
       const traslado = {
         id: generarUUID(),
         productoId,
@@ -594,7 +622,7 @@ export function POSProvider({ children }) {
         destinoId,
         cantidad: unidades,
         estado: "completado",
-        usuarioNombre: usuario?.nombre ?? "—",
+        usuarioNombre: nombreResponsable,
         nota: aTexto(nota),
         fecha: new Date().toISOString(),
       }
@@ -606,17 +634,18 @@ export function POSProvider({ children }) {
                 ...p,
                 stock: {
                   ...p.stock,
-                  [origenId]: disponible - unidades,
+                  [origenId]: (p.stock?.[origenId] ?? 0) - unidades,
                   [destinoId]: (p.stock?.[destinoId] ?? 0) + unidades,
                 },
               }
             : p
         )
       )
-      setTraslados((lista) => [traslado, ...lista])
+
+      setTraslados((prev) => [traslado, ...prev])
       return traslado
     },
-    [productosBase, sucursales, usuario]
+    [productosBase, sucursales, usuario, rol]
   )
 
   // ---------- Sesión (usa la capa de servicios) ----------

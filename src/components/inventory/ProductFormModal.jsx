@@ -234,18 +234,33 @@ function Formulario({ producto, sucursalInicial, onCerrar, cierreRef }) {
     [productos]
   )
 
-    // Ingredientes posibles: cualquier ítem activo que no sea un plato preparado ni este mismo producto
-  const candidatos = useMemo(
-    () =>
-      productos
-        .filter((x) => x.activo !== false && x.tipoItem !== "preparado" && x.id !== p?.id)
-        .sort(
-          (a, b) =>
-            (a.tipoItem === "insumo" ? 0 : 1) - (b.tipoItem === "insumo" ? 0 : 1) ||
-            a.nombre.localeCompare(b.nombre, "es")
-        ),
-    [productos, p]
-  )
+  // Ingredientes posibles: aislados por las sedes donde se maneja este plato (nunca cruza stock de otras tiendas)
+  const candidatos = useMemo(() => {
+    const idsEnReceta = new Set(receta.map((r) => r.insumoId).filter(Boolean))
+    const sedesActivasPlato = sucursales.filter((s) => manejada[s.id]).map((s) => s.id)
+    const sedesFiltro =
+      sedesActivasPlato.length > 0
+        ? sedesActivasPlato
+        : sucursalInicial !== "todas"
+          ? [sucursalInicial]
+          : []
+
+    return productos
+      .filter((x) => {
+        if (x.activo === false || x.tipoItem === "preparado" || x.id === p?.id) return false
+        if (idsEnReceta.has(x.id)) return true
+        if (sedesFiltro.length > 0) {
+          return sedesFiltro.some((sid) => typeof x.stock?.[sid] === "number")
+        }
+        return x.tipoItem === "insumo"
+      })
+      .sort(
+        (a, b) =>
+          (a.tipoItem === "insumo" ? 0 : 1) - (b.tipoItem === "insumo" ? 0 : 1) ||
+          a.nombre.localeCompare(b.nombre, "es")
+      )
+  }, [productos, p, manejada, sucursales, sucursalInicial, receta])
+
   const mapaProductos = useMemo(() => new Map(productos.map((x) => [x.id, x])), [productos])
 
   // ---------- ¿Hay cambios sin guardar? ----------
@@ -732,47 +747,84 @@ function Formulario({ producto, sucursalInicial, onCerrar, cierreRef }) {
         {/* Receta sugerida (plato / cóctel preparado) */}
         {esPreparado && (
           <Seccion titulo="Receta sugerida de insumos (Opcional · Configurable a tu medida)">
-            <div className="space-y-2">
-              {receta.map((r) => (
-                <div key={r.k} className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <Select
-                      value={r.insumoId}
-                      onValueChange={(v) => cambiarIngrediente(r.k, "insumoId", v)}
-                    >
-                      <SelectTrigger className="w-full" aria-label="Insumo">
-                        <SelectValue placeholder="Elige un insumo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {candidatos.map((x) => (
-                          <SelectItem key={x.id} value={x.id}>
-                            {x.nombreUnificado}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+            <div className="space-y-2.5">
+              {receta.map((r) => {
+                const ins = mapaProductos.get(r.insumoId)
+                const cant = Number(r.cantidad)
+                const rendIns = ins && Number(ins.rendimiento) > 1 ? Number(ins.rendimiento) : 1
+                const costoUnit = ins ? (Number(ins.costoCompra) || 0) / rendIns : 0
+                const subtotal = cant > 0 ? Math.round(costoUnit * cant) : 0
+
+                return (
+                  <div key={r.k} className="space-y-1 rounded-lg border bg-muted/20 p-2">
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <Select
+                          value={r.insumoId}
+                          onValueChange={(v) => cambiarIngrediente(r.k, "insumoId", v)}
+                        >
+                          <SelectTrigger className="w-full" aria-label="Insumo">
+                            <SelectValue placeholder="Elige un insumo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {candidatos.map((x) => (
+                              <SelectItem key={x.id} value={x.id}>
+                                {x.nombreUnificado}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        aria-label="Cantidad por plato"
+                        value={r.cantidad}
+                        onChange={(e) => cambiarIngrediente(r.k, "cantidad", e.target.value)}
+                        className="cifra w-20 text-right"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Quitar insumo"
+                        onClick={() => quitarIngrediente(r.k)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {ins && (
+                      <p className="px-1 text-[11px] text-muted-foreground">
+                        {rendIns > 1 ? (
+                          <>
+                            Paquete <span className="cifra">{formatCOP(ins.costoCompra)}</span> ÷ rinde{" "}
+                            <span className="cifra">{rendIns}</span> ={" "}
+                            <span className="cifra font-semibold text-foreground">
+                              {formatCOP(Math.round(costoUnit))}
+                            </span>{" "}
+                            por porción
+                          </>
+                        ) : (
+                          <>
+                            Costo por unidad:{" "}
+                            <span className="cifra font-semibold text-foreground">
+                              {formatCOP(ins.costoCompra)}
+                            </span>
+                          </>
+                        )}
+                        {cant > 0 && (
+                          <>
+                            {" · "}Subtotal (×<span className="cifra">{cant}</span>):{" "}
+                            <span className="cifra font-semibold text-foreground">{formatCOP(subtotal)}</span>
+                          </>
+                        )}
+                      </p>
+                    )}
                   </div>
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="any"
-                    aria-label="Cantidad por plato"
-                    value={r.cantidad}
-                    onChange={(e) => cambiarIngrediente(r.k, "cantidad", e.target.value)}
-                    className="cifra w-20 text-right"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Quitar insumo"
-                    onClick={() => quitarIngrediente(r.k)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+                )
+              })}
               <Button type="button" variant="outline" onClick={agregarIngrediente}>
                 <Plus className="h-4 w-4" />
                 Agregar insumo
@@ -785,18 +837,13 @@ function Formulario({ producto, sucursalInicial, onCerrar, cierreRef }) {
             <div className="space-y-2 rounded-xl border border-primary-500/30 bg-primary-500/5 p-4">
               <p className="flex items-center gap-2 text-sm font-bold">
                 <Lightbulb className="h-4 w-4 text-primary-600" />
-                Sugerencia del sistema según estos insumos
+                Costo sugerido según la receta
               </p>
               {sugerencia ? (
                 <>
                   <p className="text-sm">
-                    Costo estimado <span className="cifra font-bold">{formatCOP(sugerencia.costoSugerido)}</span>
-                    {" · "}Alcanzaría aprox. para{" "}
-                    <span className="cifra font-bold">~{sugerencia.porcionesSugeridas}</span> porciones
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {sucursalInicial === "todas" ? "Sumando el stock de todas las sedes" : "Según el stock de la sede actual"}
-                    {sugerencia.insumoLimitante && ` · el que limita: ${sugerencia.insumoLimitante.nombre}`}
+                    Costo estimado de preparar 1 unidad:{" "}
+                    <span className="cifra font-bold">{formatCOP(sugerencia.costoSugerido)}</span>
                   </p>
                   <Button
                     type="button"
@@ -809,11 +856,11 @@ function Formulario({ producto, sucursalInicial, onCerrar, cierreRef }) {
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Agrega insumos para ver el costo estimado y las porciones que alcanzarían.
+                  Agrega insumos arriba para calcular el costo estimado de preparar 1 plato.
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Es solo una guía: tu costo, tu precio y tus porciones listas siempre mandan.
+                Es solo una guía: el costo y el precio que escribas arriba siempre mandan.
               </p>
             </div>
           </Seccion>

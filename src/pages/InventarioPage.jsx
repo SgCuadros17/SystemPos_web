@@ -19,7 +19,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { usePOS, formatCOP, sugerirCalculoReceta } from "@/context/POSContext"
+import { usePOS, formatCOP, sugerirCalculoReceta, costoUnitarioStock } from "@/context/POSContext"
 import ProductFormModal, { MiniaturaProducto } from "@/components/inventory/ProductFormModal"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -247,13 +247,6 @@ function FilaProducto({ p, global, esAdmin, sucursalesAlcance, sucursalActiva, o
             </span>
           </div>
         )}
-        {sugerencia && (
-        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
-          <Lightbulb className="h-3 w-3 shrink-0" />
-          Sugerido por insumos:{" "}
-          <span className="cifra font-semibold">~{sugerencia.porcionesSugeridas}</span> porciones
-        </p>
-      )}
       </TableCell>
 
       {/* Total global */}
@@ -353,15 +346,20 @@ export default function InventarioPage() {
     })
 
   // ---------- KPIs (solo productos activos, en el alcance actual) ----------
-  const kpi = useMemo(() => {
+ const kpi = useMemo(() => {
     const categorias = new Set()
     let activos = 0
     let unidades = 0
     let venta = 0
-    let costo = 0
+    let costoVendibles = 0
+    let costoInsumos = 0
     let alertas = 0
     let agotados = 0
     let criticos = 0
+
+    const mapaSedes = new Map(
+      sucursalesAlcance.map((s) => [s.id, { id: s.id, nombre: s.nombre, unidades: 0, venta: 0, costo: 0 }])
+    )
 
     for (const p of productos) {
       if (p.activo === false) continue
@@ -371,14 +369,26 @@ export default function InventarioPage() {
         categorias.add(p.categoria)
       }
       const minimo = p.stockMinimo ?? 5
+      const costoUnit = costoUnitarioStock(p)
+      const esInsumo = (p.tipoItem ?? "venta_directa") === "insumo"
+
       for (const s of sucursalesAlcance) {
         const u = p.stock?.[s.id]
         if (typeof u !== "number") continue
         unidades += u
-        // Los insumos no se venden: no entran a la valorización ni a la ganancia potencial
-        if ((p.tipoItem ?? "venta_directa") !== "insumo") {
+        const infoSede = mapaSedes.get(s.id)
+        if (infoSede) infoSede.unidades += u
+
+        if (esInsumo) {
+          costoInsumos += costoUnit * u
+          if (infoSede) infoSede.costo += costoUnit * u
+        } else {
           venta += p.precio * u
-          costo += (p.costoCompra ?? 0) * u
+          costoVendibles += costoUnit * u
+          if (infoSede) {
+            infoSede.venta += p.precio * u
+            infoSede.costo += costoUnit * u
+          }
         }
         const e = estadoStock(u, minimo)
         if (e === "agotado" || e === "critico" || e === "bajo") {
@@ -394,8 +404,11 @@ export default function InventarioPage() {
       inactivos: productos.filter((p) => p.activo === false).length,
       unidades,
       venta,
-      costo,
-      ganancia: venta - costo,
+      costoVendibles,
+      costoInsumos,
+      costoTotal: costoVendibles + costoInsumos,
+      ganancia: venta - costoVendibles,
+      porSede: [...mapaSedes.values()],
       alertas,
       agotados,
       criticos,
@@ -604,6 +617,18 @@ export default function InventarioPage() {
                 {sucursalesAlcance.length === 1 ? "sucursal" : "sucursales"}
               </Chip>
             </div>
+            {global && kpi.porSede.length > 1 && (
+              <div className="space-y-1 border-t pt-2 text-[11px] text-muted-foreground">
+                {kpi.porSede.map((s) => (
+                  <p key={s.id} className="flex justify-between gap-2">
+                    <span className="truncate">{s.nombre}</span>
+                    <span className="cifra font-semibold text-foreground">
+                      {s.unidades.toLocaleString("es-CO")} uds
+                    </span>
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -619,9 +644,21 @@ export default function InventarioPage() {
             <p className="cifra text-3xl font-bold">{formatCOP(kpi.venta)}</p>
             <div className="space-y-1 text-xs text-muted-foreground">
               <p className="flex justify-between gap-2">
-                <span>Costo invertido</span>
-                <span className="cifra font-semibold text-foreground">{formatCOP(kpi.costo)}</span>
+                <span>Costo en vendibles</span>
+                <span className="cifra font-semibold text-foreground">{formatCOP(kpi.costoVendibles)}</span>
               </p>
+              {kpi.costoInsumos > 0 && (
+                <>
+                  <p className="flex justify-between gap-2">
+                    <span>Capital en insumos</span>
+                    <span className="cifra font-semibold text-foreground">{formatCOP(kpi.costoInsumos)}</span>
+                  </p>
+                  <p className="flex justify-between gap-2">
+                    <span>Capital total invertido</span>
+                    <span className="cifra font-semibold text-foreground">{formatCOP(kpi.costoTotal)}</span>
+                  </p>
+                </>
+              )}
               <p className="flex justify-between gap-2">
                 <span>Ganancia potencial</span>
                 <span className="cifra font-semibold text-accent-700 dark:text-accent-400">
@@ -629,6 +666,17 @@ export default function InventarioPage() {
                 </span>
               </p>
             </div>
+            {global && kpi.porSede.length > 1 && (
+              <div className="space-y-1 border-t pt-2 text-[11px] text-muted-foreground">
+                <p className="font-semibold text-foreground">Costo invertido por sede:</p>
+                {kpi.porSede.map((s) => (
+                  <p key={s.id} className="flex justify-between gap-2">
+                    <span className="truncate">{s.nombre}</span>
+                    <span className="cifra font-semibold text-foreground">{formatCOP(s.costo)}</span>
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
         )}

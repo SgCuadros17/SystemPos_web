@@ -30,16 +30,18 @@ export const construirNombreUnificado = (p) =>
 
 const conNombreUnificado = (p) => ({ ...p, nombreUnificado: construirNombreUnificado(p) })
 
-// Sugerencia (nunca obliga): costo y porciones estimadas según la receta que configuró el admin.
-// productosMap: Map<id, producto> u objeto { id: producto }. sucursalId: id de sede o "todas".
-// Convención: el stock de un insumo con rendimiento > 1 se cuenta en PORCIONES y su costoCompra
-// es el de la unidad comprada, por eso costo por porción = costoCompra / rendimiento.
-export const sugerirCalculoReceta = (producto, productosMap, sucursalId = "todas") => {
+// Costo de 1 unidad almacenada en stock (si tiene rendimiento > 1, el stock está en porciones
+// y costoCompra es el del paquete/unidad comprada, por lo que 1 porción cuesta costoCompra / rendimiento)
+export const costoUnitarioStock = (p) => {
+  const costo = Number(p?.costoCompra) || 0
+  const rend = Number(p?.rendimiento) > 1 ? Number(p.rendimiento) : 1
+  return costo / rend
+}
+
+export const sugerirCalculoReceta = (producto, productosMap) => {
   const receta = producto?.receta ?? []
   const buscar = (id) => (productosMap instanceof Map ? productosMap.get(id) : productosMap?.[id])
   let costoSugerido = 0
-  let porciones = Infinity
-  let insumoLimitante = null
   let usados = 0
 
   for (const linea of receta) {
@@ -47,22 +49,11 @@ export const sugerirCalculoReceta = (producto, productosMap, sucursalId = "todas
     const cantidad = Number(linea.cantidad)
     if (!insumo || !(cantidad > 0)) continue
     usados += 1
-    const rendimiento = Number(insumo.rendimiento) > 0 ? Number(insumo.rendimiento) : 1
-    costoSugerido += ((Number(insumo.costoCompra) || 0) / rendimiento) * cantidad
-
-    const disponible =
-      sucursalId && sucursalId !== "todas"
-        ? insumo.stock?.[sucursalId] ?? 0
-        : Object.values(insumo.stock ?? {}).reduce((suma, u) => suma + u, 0)
-    const alcanza = Math.floor(disponible / cantidad)
-    if (alcanza < porciones) {
-      porciones = alcanza
-      insumoLimitante = insumo
-    }
+    costoSugerido += costoUnitarioStock(insumo) * cantidad
   }
 
   if (usados === 0) return null
-  return { costoSugerido: Math.round(costoSugerido), porcionesSugeridas: porciones, insumoLimitante }
+  return { costoSugerido: Math.round(costoSugerido) }
 }
 
 // Fecha ISO de hace N días (misma hora actual)
@@ -115,15 +106,16 @@ const PRODUCTOS_INICIALES = [
   prod("p3", "Arroz blanco", "Orquídea", "1kg", "Despensa", 4500, 3400, "770200100003", "wheat", { s1: 60, s2: 35, s3: 20 }),
   prod("p4", "Leche entera", "Colanta", "1L", "Lácteos", 4200, 3300, "770200100004", "milk", { s1: 40, s2: 3, s3: 15 }),
   prod("p5", "Gaseosa", "Postobón", "1.5L", "Bebidas", 6500, 4800, "770200100005", "cup-soda", { s1: 30, s2: 22, s3: 18 }),
-  prod("p6", "Pan tajado", "Bimbo", "Bolsa 500g", "Panadería", 5800, 4300, "770200100006", "croissant", { s1: 15, s2: 9, s3: 2 }),
+  prod("p6", "Pan tajado", "Bimbo", "Bolsa 500g", "Panadería", 5800, 4300, "770200100006", "croissant", { s1: 15, s2: 9 }),
   prod("p7", "Café molido", "Sello Rojo", "250g", "Despensa", 9500, 7400, "770200100007", "coffee", { s1: 20, s2: 14, s3: 8 }),
-  prod("p8", "Hamburguesa artesanal", "De la casa", "Combo", "Comidas rápidas", 18000, 9500, "", "sandwich", { s3: 45 }, {
+  prod("p8", "Hamburguesa artesanal", "De la casa", "Combo", "Comidas rápidas", 18000, 5400, "", "sandwich", { s3: 45 }, {
     tipoItem: "preparado",
-    receta: [{ insumoId: "p10", cantidad: 1 }, { insumoId: "p6", cantidad: 1 }],
+    receta: [{ insumoId: "p10", cantidad: 1 }, { insumoId: "p12", cantidad: 1 }],
   }),
   prod("p9", "Jugo natural", "De la casa", "Vaso 16oz", "Jugos y granizados", 6000, 2500, "", "glass-water", { s3: 50 }),
-  prod("p10", "Carne de hamburguesa", "De la casa", "Porción 150g", "Insumos de cocina y barra", 0, 4800, "", "beef", { s3: 18 }, { tipoItem: "insumo" }),
-  prod("p11", "Limón Tahití", "Plaza", "Unidad", "Insumos de cocina y barra", 0, 300, "", "apple", { s3: 40 }, { tipoItem: "insumo" }),
+  prod("p10", "Carne de hamburguesa", "De la casa", "Porción 150g", "Insumos de cocina y barra", 0, 4800, "", "beef", { s3: 18 }, { tipoItem: "insumo", rendimiento: 1 }),
+  prod("p11", "Limón Tahití", "Plaza", "Unidad", "Insumos de cocina y barra", 0, 300, "", "apple", { s3: 40 }, { tipoItem: "insumo", rendimiento: 1 }),
+  prod("p12", "Pan de hamburguesa", "Bimbo", "Paquete x12", "Insumos de cocina y barra", 0, 7200, "", "sandwich", { s3: 24 }, { tipoItem: "insumo", rendimiento: 12 }),
 ].map(conNombreUnificado)
 
 const CLIENTES_INICIALES = [

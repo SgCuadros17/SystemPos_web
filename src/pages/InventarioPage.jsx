@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useLocation } from "react-router-dom"
 
 // ---------------------------------------------------------------------
 // Constantes y utilidades
@@ -89,8 +90,10 @@ const margenDe = (p) => (p.precio > 0 ? ((p.precio - p.costoCompra) / p.precio) 
 
 const fechaCorta = (iso) =>
   new Date(iso).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" })
-const horaCorta = (iso) =>
-  new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })
+const horaCorta = (iso) => {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
 
 // ---------------------------------------------------------------------
 // Componentes de apoyo
@@ -299,11 +302,13 @@ export default function InventarioPage() {
     traslados,
   } = usePOS()
 
+  const location = useLocation()
+
   const [tab, setTab] = useState("catalogo")
   const [busqueda, setBusqueda] = useState("")
   const [categoriaFiltro, setCategoriaFiltro] = useState("todas")
   const [marcaFiltro, setMarcaFiltro] = useState("todas") // "todas" | "__sin__" | marca
-  const [soloBajo, setSoloBajo] = useState(false)
+  const [soloBajo, setSoloBajo] = useState(() => Boolean(location.state?.soloBajo))
   const [verInactivos, setVerInactivos] = useState(false)
   const [modal, setModal] = useState({ abierto: false, producto: null })
   const [tipoFiltro, setTipoFiltro] = useState("todos")

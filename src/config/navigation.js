@@ -26,7 +26,7 @@ export const NAV_ITEMS = [
     icon: ShoppingCart,
     roles: ["admin", "cajero"],
     seccion: "Operación",
-    descripcion: "Catálogo por categorías, lector de barras, carrito y cobro en Efectivo, Nequi o Crédito.",
+    descripcion: "Catálogo, carrito y cobro en efectivo, transferencia, tarjeta o crédito.",
   },
   {
     to: "/inventario",
@@ -42,7 +42,7 @@ export const NAV_ITEMS = [
     icon: CreditCard,
     roles: ["admin", "cajero"],
     seccion: "Operación",
-    descripcion: "Gestión de clientes a crédito, cupos autorizados, PINs e historial de abonos.",
+    descripcion: "Gestión de clientes a crédito, Clientes autorizados, PIN, créditos pendientes y abonos por selección múltiple.",
   },
   {
     to: "/egresos",
@@ -63,11 +63,11 @@ export const NAV_ITEMS = [
   {
     to: "/cierres",
     label: "Cierres de Caja",
-    labelCajero: "Cierre de Caja",
+    labelCajero: "Cierre de turno",
     icon: Receipt,
     roles: ["admin", "cajero"],
     seccion: "Operación",
-    descripcion: "Arqueo diario por turno y sucursal: efectivo, Nequi, abonos, egresos y créditos del día.",
+    descripcion: "Arqueo diario: efectivo, transferencias, tarjeta, abonos, egresos y crédito informativo.",
   },
   {
     to: "/sucursales",

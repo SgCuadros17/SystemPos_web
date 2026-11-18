@@ -12,7 +12,6 @@ import {
   Plus,
   Receipt,
   ShoppingCart,
-  Smartphone,
   Sparkles,
   Store,
   TrendingDown,
@@ -31,8 +30,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 // ---------------------------------------------------------------------
 // Constantes
 // ---------------------------------------------------------------------
-const UMBRAL_STOCK = 5 // stock crítico: <= 5 unidades
-const CTA = "bg-accent-500 text-text-950 hover:bg-accent-500/90 font-bold dark:text-[#02180d]"
+const CTA = "bg-accent-500 text-text-950 hover:bg-accent-500/90 font-bold dark:text-background-50"
 
 const PERIODOS = [
   { id: "hoy", label: "Hoy" },
@@ -45,26 +43,37 @@ const ANTERIOR = { hoy: [1, 1], "7d": [7, 13], historico: null }
 const TEXTO_PERIODO = { hoy: "hoy", "7d": "últimos 7 días", historico: "histórico" }
 const TEXTO_VS = { hoy: "vs. ayer", "7d": "vs. 7 días previos" }
 
-const TIPOS = {
+const TIPOS_NEGOCIO = {
   tienda: "Tienda",
   minimercado: "Minimercado",
   ferreteria: "Ferretería",
   restaurante: "Restaurante",
 }
 
+// Nomenclatura oficial de pagos: Efectivo, Transferencias, Tarjeta y Crédito
+const TIPOS_PAGO = ["efectivo", "transferencia", "tarjeta", "credito"]
 const METODOS = {
   efectivo: {
     label: "Efectivo",
+    corto: "Efectivo",
     punto: "bg-accent-500",
     badge: "bg-accent-500/15 text-accent-700 dark:text-accent-400",
   },
-  nequi: {
-    label: "Nequi",
+  transferencia: {
+    label: "Transferencias",
+    corto: "Transferencia",
     punto: "bg-primary-500",
     badge: "bg-primary-500/10 text-primary-600",
   },
-  fiado: {
-    label: "Crédito (Fiado)",
+  tarjeta: {
+    label: "Tarjeta",
+    corto: "Tarjeta",
+    punto: "bg-secondary-500",
+    badge: "bg-secondary-500/10 text-secondary-600",
+  },
+  credito: {
+    label: "Crédito",
+    corto: "Crédito",
     punto: "bg-amber-500",
     badge: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   },
@@ -74,7 +83,7 @@ const METODOS = {
 const COLORES_SUCURSAL = ["bg-primary-500", "bg-secondary-400", "bg-primary-300", "bg-secondary-700"]
 
 // ---------------------------------------------------------------------
-// Utilidades de fecha y cálculo
+// Utilidades de fecha
 // ---------------------------------------------------------------------
 const inicioDia = (d) => {
   const x = new Date(d)
@@ -87,53 +96,84 @@ const enRango = (iso, rango, hoy) => {
   return d >= rango[0] && d <= rango[1]
 }
 
-const CUENTA = { efectivo: "nEfectivo", nequi: "nNequi", fiado: "nFiado" }
+const pct = (n) => `${n.toFixed(1).replace(".", ",")}%`
+const fechaLarga = (d) =>
+  d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
+const fechaCorta = (iso) =>
+  new Date(iso).toLocaleDateString("es-CO", { day: "numeric", month: "short" })
 
-const resumir = (lista) => {
-  const r = {
-    total: 0, n: lista.length,
-    efectivo: 0, nequi: 0, fiado: 0,
-    nEfectivo: 0, nNequi: 0, nFiado: 0,
-    porSucursal: {},
-  }
-  for (const v of lista) {
-    r.total += v.total
-    r[v.metodo] += v.total
-    r[CUENTA[v.metodo]] += 1
-    r.porSucursal[v.sucursalId] = (r.porSucursal[v.sucursalId] || 0) + v.total
-  }
-  return r
-}
-
-const resumirEgresos = (lista) => {
-  const r = { total: 0, n: lista.length, efectivo: 0, nequi: 0 }
-  for (const e of lista) {
-    r.total += e.monto
-    r[e.metodo] += e.monto
-  }
-  return r
+// Hora en formato 24 h construida a mano (evita mezclas como "18:24 a. m." según el navegador)
+const horaVenta = (iso) => {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 }
 
 const variacion = (actual, anterior) =>
   anterior > 0 ? ((actual - anterior) / anterior) * 100 : null
 
-const pct = (n) => `${n.toFixed(1).replace(".", ",")}%`
+// ---------------------------------------------------------------------
+// Cálculos contables
+// ---------------------------------------------------------------------
+const vacioTipos = () => ({ efectivo: 0, transferencia: 0, tarjeta: 0, credito: 0 })
 
-const fechaLarga = (d) =>
-  d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
+const agruparPagos = (pagosVenta) => {
+  const mapa = new Map()
+  for (const p of pagosVenta) {
+    const lista = mapa.get(p.venta_id)
+    if (lista) lista.push(p)
+    else mapa.set(p.venta_id, [p])
+  }
+  return mapa
+}
 
-const horaVenta = (iso) =>
-  new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })
+// Totales de una lista de ventas; los montos por tipo salen de pagos_venta
+const resumirVentas = (lista, pagosPorVenta) => {
+  const r = { total: 0, n: lista.length, tipos: vacioTipos(), ops: vacioTipos(), porSucursal: {} }
+  for (const v of lista) {
+    r.total += v.total
+    r.porSucursal[v.sucursalId] = (r.porSucursal[v.sucursalId] || 0) + v.total
+    for (const p of pagosPorVenta.get(v.id) ?? []) {
+      if (p.payment_type in r.tipos) {
+        r.tipos[p.payment_type] += p.monto
+        r.ops[p.payment_type] += 1
+      }
+    }
+  }
+  return r
+}
 
-const fechaCorta = (iso) =>
-  new Date(iso).toLocaleDateString("es-CO", { day: "numeric", month: "short" })
+// Las 5 Ecuaciones Maestras
+//  1. Caja Física (efectivo)       = pagos efectivo + abonos efectivo − egresos efectivo
+//  2. Caja Digital (transferencias) = pagos transf. + abonos transf. − egresos transf.
+//  3. Caja Datáfono (tarjeta)       = pagos tarjeta + abonos tarjeta
+//  4. Liquidez Neta                 = física + digital + datáfono
+//  5. Total Crédito (informativo)   = pagos con payment_type 'credito' (no infla la caja; va a cartera)
+const calcularCaja = (tiposPagos, abonos, egresos) => {
+  const ab = vacioTipos()
+  for (const a of abonos) if (a.payment_type in ab) ab[a.payment_type] += a.monto
+  const eg = vacioTipos()
+  for (const e of egresos) if (e.payment_type in eg) eg[e.payment_type] += e.monto
+
+  const efectivo = tiposPagos.efectivo + ab.efectivo - eg.efectivo
+  const transferencias = tiposPagos.transferencia + ab.transferencia - eg.transferencia
+  const tarjeta = tiposPagos.tarjeta + ab.tarjeta
+  return {
+    efectivo,
+    transferencias,
+    tarjeta,
+    liquidez: efectivo + transferencias + tarjeta,
+    credito: tiposPagos.credito,
+    totalAbonos: ab.efectivo + ab.transferencia + ab.tarjeta,
+    totalEgresos: eg.efectivo + eg.transferencia,
+  }
+}
 
 // ---------------------------------------------------------------------
 // Componentes de apoyo
 // ---------------------------------------------------------------------
 function Entrada({ i = 0, className, children }) {
   return (
-    <div className={cn("dash-entrada min-w-0", className)} style={{ animationDelay: `${i * 70}ms` }}>
+    <div className={cn("dash-entrada", className)} style={{ animationDelay: `${i * 70}ms` }}>
       {children}
     </div>
   )
@@ -176,7 +216,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const {
     negocio, sucursales, sucursalActiva, setSucursalActiva, sucursalActual,
-    rol, productos, clientes, ventas, egresos,
+    rol, productos, clientes, ventas, pagosVenta, abonosCredito, egresos,
   } = usePOS()
 
   const [periodo, setPeriodo] = useState("hoy")
@@ -195,24 +235,29 @@ export default function DashboardPage() {
     const rango = RANGOS[periodo]
     const enAlcance = (x) => sucursalActiva === "todas" || x.sucursalId === sucursalActiva
 
+    const pagosPorVenta = agruparPagos(pagosVenta)
+    const creditoDe = (ventaId) =>
+      (pagosPorVenta.get(ventaId) ?? [])
+        .filter((p) => p.payment_type === "credito")
+        .reduce((s, p) => s + p.monto, 0)
+
     const ventasAlcance = ventas.filter(enAlcance)
-    const egresosAlcance = egresos.filter(enAlcance)
     const ventasPeriodo = ventasAlcance.filter((v) => enRango(v.fecha, rango, hoy))
-    const egresosPeriodo = egresosAlcance.filter((e) => enRango(e.fecha, rango, hoy))
+    const abonosPeriodo = abonosCredito.filter(enAlcance).filter((a) => enRango(a.fecha, rango, hoy))
+    const egresosPeriodo = egresos.filter(enAlcance).filter((e) => enRango(e.fecha, rango, hoy))
 
-    const actual = resumir(ventasPeriodo)
+    const actual = resumirVentas(ventasPeriodo, pagosPorVenta)
     const previo = ANTERIOR[periodo]
-      ? resumir(ventasAlcance.filter((v) => enRango(v.fecha, ANTERIOR[periodo], hoy)))
+      ? resumirVentas(ventasAlcance.filter((v) => enRango(v.fecha, ANTERIOR[periodo], hoy)), pagosPorVenta)
       : null
-    const eg = resumirEgresos(egresosPeriodo)
 
-    // Liquidez real: el fiado NO entra
-    const cajaEfectivo = actual.efectivo - eg.efectivo
-    const cajaNequi = actual.nequi - eg.nequi
+    // Ecuaciones Maestras del periodo y alcance actuales
+    const caja = calcularCaja(actual.tipos, abonosPeriodo, egresosPeriodo)
+    const eg = { total: caja.totalEgresos, n: egresosPeriodo.length }
 
-    // Cartera pendiente (no depende del periodo)
+    // Créditos pendientes (cartera): solo la línea de crédito, sin importar el periodo
     const pendientes = ventasAlcance.filter((v) => v.estadoDeuda === "pendiente")
-    const carteraTotal = pendientes.reduce((s, v) => s + v.total, 0)
+    const carteraTotal = pendientes.reduce((s, v) => s + creditoDe(v.id), 0)
     const clientesConSaldo = new Set(pendientes.map((v) => v.clienteId)).size
 
     // Últimos 7 días (siempre, para la gráfica)
@@ -220,41 +265,47 @@ export default function DashboardPage() {
     for (let i = 6; i >= 0; i--) {
       const fecha = new Date(hoy)
       fecha.setDate(fecha.getDate() - i)
-      dias.push({ ...resumir(ventasAlcance.filter((v) => diasAtras(v.fecha, hoy) === i)), fecha })
+      dias.push({
+        ...resumirVentas(ventasAlcance.filter((v) => diasAtras(v.fecha, hoy) === i), pagosPorVenta),
+        fecha,
+      })
     }
-    const semana = resumir(ventasAlcance.filter((v) => enRango(v.fecha, RANGOS["7d"], hoy)))
+    const semana = resumirVentas(ventasAlcance.filter((v) => enRango(v.fecha, RANGOS["7d"], hoy)), pagosPorVenta)
     const maxDia = Math.max(...dias.map((x) => x.total), 0)
 
     // Comparativa por sucursal (siempre sobre todas las sedes)
     const ventasPeriodoTodas = ventas.filter((v) => enRango(v.fecha, rango, hoy))
     const totalNegocio = ventasPeriodoTodas.reduce((s, v) => s + v.total, 0)
     const comparativa = sucursales.map((s) => {
-      const r = resumir(ventasPeriodoTodas.filter((v) => v.sucursalId === s.id))
-      const egS = resumirEgresos(
+      const r = resumirVentas(ventasPeriodoTodas.filter((v) => v.sucursalId === s.id), pagosPorVenta)
+      const c = calcularCaja(
+        r.tipos,
+        abonosCredito.filter((a) => a.sucursalId === s.id && enRango(a.fecha, rango, hoy)),
         egresos.filter((e) => e.sucursalId === s.id && enRango(e.fecha, rango, hoy))
       )
       return {
         sucursal: s,
         total: r.total,
         n: r.n,
-        neto: r.efectivo + r.nequi - egS.total,
-        fiados: ventas
+        neto: c.liquidez,
+        creditos: ventas
           .filter((v) => v.sucursalId === s.id && v.estadoDeuda === "pendiente")
-          .reduce((suma, v) => suma + v.total, 0),
+          .reduce((suma, v) => suma + creditoDe(v.id), 0),
         aporte: totalNegocio > 0 ? (r.total / totalNegocio) * 100 : 0,
       }
     })
 
-    // Stock crítico: solo sedes activas que manejan el producto
+    // Stock crítico: solo sedes activas que manejan el producto, según el stock mínimo de cada uno
     const sucursalesAlcance = sucursales.filter(
       (s) => s.activa !== false && (sucursalActiva === "todas" || s.id === sucursalActiva)
     )
     const criticos = []
     for (const p of productos) {
-            if (p.activo === false) continue
+      if (p.activo === false) continue
+      const minimo = p.stockMinimo ?? 5
       for (const s of sucursalesAlcance) {
         const u = p.stock?.[s.id]
-        if (typeof u === "number" && u <= UMBRAL_STOCK) {
+        if (typeof u === "number" && u <= minimo) {
           criticos.push({ producto: p, sucursal: s, unidades: u })
         }
       }
@@ -266,13 +317,13 @@ export default function DashboardPage() {
       .slice(0, 6)
 
     return {
-      actual, previo, eg, cajaEfectivo, cajaNequi,
+      actual, previo, caja, eg, pagosPorVenta,
       carteraTotal, clientesConSaldo,
       dias, semana, maxDia, comparativa, criticos, ultimas,
     }
-  }, [ventas, egresos, productos, sucursales, sucursalActiva, periodo, hoy])
+  }, [ventas, pagosVenta, abonosCredito, egresos, productos, sucursales, sucursalActiva, periodo, hoy])
 
-  const { actual, previo, eg, cajaEfectivo, cajaNequi, dias, semana, maxDia } = d
+  const { actual, previo, caja, eg, dias, semana, maxDia, pagosPorVenta } = d
   const delta = previo ? variacion(actual.total, previo.total) : null
   const ticket = actual.n > 0 ? actual.total / actual.n : 0
   const negocioVacio = ventas.length === 0 && productos.length === 0
@@ -291,16 +342,16 @@ export default function DashboardPage() {
   const clienteDe = (id) => clientes.find((c) => c.id === id)?.nombre ?? "Cliente"
   const sucursalDe = (id) => sucursales.find((s) => s.id === id)?.nombre ?? "—"
 
-  const distribucion = ["efectivo", "nequi", "fiado"].map((clave) => ({
+  const distribucion = TIPOS_PAGO.map((clave) => ({
     clave,
     ...METODOS[clave],
-    monto: actual[clave],
-    ops: actual[CUENTA[clave]],
-    porcentaje: actual.total > 0 ? (actual[clave] / actual.total) * 100 : 0,
+    monto: actual.tipos[clave],
+    ops: actual.ops[clave],
+    porcentaje: actual.total > 0 ? (actual.tipos[clave] / actual.total) * 100 : 0,
   }))
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <style>{`
         @keyframes dash-entrada { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
         .dash-entrada { animation: dash-entrada .5s ease-out both }
@@ -310,13 +361,13 @@ export default function DashboardPage() {
       {/* ---------- A) Encabezado + acciones ---------- */}
       <Entrada i={0}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <p className="text-sm font-semibold text-muted-foreground">Panel gerencial</p>
             <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">{negocio?.nombre}</h1>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary" className="gap-1.5">
                 <Store className="h-3.5 w-3.5" />
-                {TIPOS[negocio?.tipo_negocio] ?? "Negocio"}
+                {TIPOS_NEGOCIO[negocio?.tipo_negocio] ?? "Negocio"}
               </Badge>
               <Badge variant="outline" className="gap-1.5">
                 <Building2 className="h-3.5 w-3.5" />
@@ -336,7 +387,7 @@ export default function DashboardPage() {
                   className={cn(
                     "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
                     periodo === p.id
-                      ? "bg-accent-500 font-bold text-text-950 dark:text-[#02180d]"
+                      ? "bg-accent-500 font-bold text-text-950 dark:text-background-50"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -365,8 +416,8 @@ export default function DashboardPage() {
           <Card className="gap-0 overflow-hidden border-primary-500/30 bg-primary-500/5 py-0">
             <CardContent className="space-y-6 p-6 md:p-8">
               <div className="flex items-start gap-4">
-                <IconoKpi icon={Sparkles} className="bg-accent-500 text-text-950 dark:text-[#02180d]" />
-                <div>
+                <IconoKpi icon={Sparkles} className="bg-accent-500 text-text-950 dark:text-background-50" />
+                <div className="min-w-0">
                   <h2 className="text-xl font-extrabold tracking-tight md:text-2xl">
                     ¡Bienvenido a Abaco, {negocio?.nombre}!
                   </h2>
@@ -379,10 +430,10 @@ export default function DashboardPage() {
               <div className="grid gap-3 md:grid-cols-3">
                 {[
                   { n: 1, icon: Package, titulo: "Agrega tus productos", texto: "Crea tu catálogo y carga el stock inicial de cada sucursal.", ruta: "/inventario", boton: "Ir a Inventario", accent: true },
-                  { n: 2, icon: ShoppingCart, titulo: "Registra tu primera venta", texto: "Cobra en efectivo, Nequi o fiado desde el Punto de Venta.", ruta: "/pos", boton: "Ir al Punto de Venta" },
-                  { n: 3, icon: Building2, titulo: "Gestiona tus sucursales", texto: "Agrega sedes y empleados con su PIN de seguridad.", ruta: "/sucursales", boton: "Ver sucursales" },
+                  { n: 2, icon: ShoppingCart, titulo: "Registra tu primera venta", texto: "Cobra en efectivo, transferencia, tarjeta o crédito desde el Punto de Venta.", ruta: "/pos", boton: "Ir al Punto de Venta" },
+                  { n: 3, icon: Building2, titulo: "Gestiona tus sucursales", texto: "Agrega sedes y empleados con su PIN de seguridad.", ruta: "/equipo", boton: "Ver sucursales" },
                 ].map(({ n, icon: Icono, titulo, texto, ruta, boton, accent }) => (
-                  <div key={n} className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+                  <div key={n} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4">
                     <div className="flex items-center gap-3">
                       <span className="cifra flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
                         {n}
@@ -412,7 +463,7 @@ export default function DashboardPage() {
       {/* ---------- C) KPIs ---------- */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {/* 1. Ventas del periodo */}
-        <Entrada i={2} className="h-full">
+        <Entrada i={2} className="h-full min-w-0">
           <Card className="h-full gap-0 py-0">
             <CardContent className="space-y-3 p-5">
               <div className="flex items-center justify-between">
@@ -449,38 +500,44 @@ export default function DashboardPage() {
           </Card>
         </Entrada>
 
-        {/* 2. Liquidez real */}
-        <Entrada i={3} className="h-full">
+        {/* 2. Liquidez real (Ecuaciones Maestras) */}
+        <Entrada i={3} className="h-full min-w-0">
           <Card className="h-full gap-0 py-0">
             <CardContent className="space-y-3 p-5">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-muted-foreground">Liquidez real en caja</p>
                 <IconoKpi icon={Banknote} className="bg-accent-500/15 text-accent-700 dark:text-accent-400" />
               </div>
-              <p className="cifra text-3xl font-bold">{formatCOP(cajaEfectivo + cajaNequi)}</p>
+              <p className="cifra text-3xl font-bold">{formatCOP(caja.liquidez)}</p>
               <div className="flex flex-wrap gap-2">
                 <Chip>
                   <span className="h-2 w-2 rounded-full bg-accent-500" />
-                  Efectivo <span className="cifra">{formatCOP(cajaEfectivo)}</span>
+                  Efectivo <span className="cifra">{formatCOP(caja.efectivo)}</span>
                 </Chip>
                 <Chip>
                   <span className="h-2 w-2 rounded-full bg-primary-500" />
-                  Nequi <span className="cifra">{formatCOP(cajaNequi)}</span>
+                  Transferencias <span className="cifra">{formatCOP(caja.transferencias)}</span>
+                </Chip>
+                <Chip>
+                  <span className="h-2 w-2 rounded-full bg-secondary-500" />
+                  Tarjeta <span className="cifra">{formatCOP(caja.tarjeta)}</span>
                 </Chip>
               </div>
               <p className="text-xs text-muted-foreground">
-                Ventas en efectivo y Nequi menos pagos a proveedores. El fiado no infla la caja.
+                Pagos + abonos − egresos. Total crédito {TEXTO_PERIODO[periodo]}:{" "}
+                <span className="cifra font-semibold text-foreground">{formatCOP(caja.credito)}</span>
+                {" "}(informativo, va a cartera).
               </p>
             </CardContent>
           </Card>
         </Entrada>
 
-        {/* 3. Cartera por cobrar */}
-        <Entrada i={4} className="h-full">
+        {/* 3. Créditos pendientes */}
+        <Entrada i={4} className="h-full min-w-0">
           <Card className="h-full gap-0 py-0">
             <CardContent className="space-y-3 p-5">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-muted-foreground">Cartera por cobrar</p>
+                <p className="text-sm font-semibold text-muted-foreground">Créditos pendientes</p>
                 <IconoKpi icon={HandCoins} className="bg-amber-500/15 text-amber-700 dark:text-amber-400" />
               </div>
               <p className="cifra text-3xl font-bold">{formatCOP(d.carteraTotal)}</p>
@@ -500,7 +557,7 @@ export default function DashboardPage() {
         </Entrada>
 
         {/* 4. Egresos y stock */}
-        <Entrada i={5} className="h-full">
+        <Entrada i={5} className="h-full min-w-0">
           <Card className="h-full gap-0 py-0">
             <CardContent className="space-y-3 p-5">
               <div className="flex items-center justify-between">
@@ -513,7 +570,7 @@ export default function DashboardPage() {
               </p>
               <button
                 type="button"
-                onClick={() => navigate("/inventario")}
+                onClick={() => navigate("/inventario", { state: { soloBajo: true } })}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors",
                   d.criticos.length > 0
@@ -540,7 +597,7 @@ export default function DashboardPage() {
       {/* ---------- D) Gráficas ---------- */}
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Barras interactivas: 7 días */}
-        <Entrada i={6} className="lg:col-span-2">
+        <Entrada i={6} className="min-w-0 lg:col-span-2">
           <Card className="h-full gap-0 py-0">
             <CardHeader className="px-5 pb-0 pt-5">
               <CardTitle className="text-lg">Ventas de los últimos 7 días</CardTitle>
@@ -553,9 +610,12 @@ export default function DashboardPage() {
                 <div className="mt-1 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
                   <p className="cifra text-2xl font-bold">{formatCOP(mostrado.total)}</p>
                   <div className="flex flex-wrap gap-2">
-                    <Chip><span className="h-2 w-2 rounded-full bg-accent-500" />Efectivo <span className="cifra">{formatCOP(mostrado.efectivo)}</span></Chip>
-                    <Chip><span className="h-2 w-2 rounded-full bg-primary-500" />Nequi <span className="cifra">{formatCOP(mostrado.nequi)}</span></Chip>
-                    <Chip><span className="h-2 w-2 rounded-full bg-amber-500" />Fiado <span className="cifra">{formatCOP(mostrado.fiado)}</span></Chip>
+                    {TIPOS_PAGO.map((t) => (
+                      <Chip key={t}>
+                        <span className={cn("h-2 w-2 rounded-full", METODOS[t].punto)} />
+                        {METODOS[t].label} <span className="cifra">{formatCOP(mostrado.tipos[t])}</span>
+                      </Chip>
+                    ))}
                     <Chip><span className="cifra">{mostrado.n}</span> ventas</Chip>
                   </div>
                 </div>
@@ -576,7 +636,7 @@ export default function DashboardPage() {
                         onFocus={() => setSel(i)}
                         onBlur={() => setSel(null)}
                         onClick={() => setSel(i)}
-                        className="flex h-full flex-1 items-end rounded-t-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="flex h-full min-w-0 flex-1 items-end rounded-t-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         <span
                           className={cn(
@@ -592,7 +652,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="mt-2 flex gap-2 sm:gap-3">
                   {dias.map((dia, i) => (
-                    <div key={i} className="flex-1 text-center">
+                    <div key={i} className="min-w-0 flex-1 text-center">
                       <p className={cn("text-[11px] font-semibold capitalize", sel === i ? "text-foreground" : "text-muted-foreground")}>
                         {dia.fecha.toLocaleDateString("es-CO", { weekday: "short" }).replace(".", "")}
                       </p>
@@ -639,7 +699,7 @@ export default function DashboardPage() {
         </Entrada>
 
         {/* Distribución por método de pago */}
-        <Entrada i={7}>
+        <Entrada i={7} className="min-w-0">
           <Card className="h-full gap-0 py-0">
             <CardHeader className="px-5 pb-0 pt-5">
               <CardTitle className="text-lg">Método de pago</CardTitle>
@@ -690,27 +750,27 @@ export default function DashboardPage() {
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {d.comparativa.map(({ sucursal, total, neto, fiados, aporte, n }) => (
+              {d.comparativa.map(({ sucursal, total, neto, creditos, aporte, n }) => (
                 <button
                   key={sucursal.id}
                   type="button"
                   onClick={() => setSucursalActiva(sucursal.id)}
-                  className="group space-y-4 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 hover:border-accent-500 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="group min-w-0 space-y-4 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 hover:border-accent-500 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="rounded-xl bg-primary-500/10 p-2.5 text-primary-600">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="shrink-0 rounded-xl bg-primary-500/10 p-2.5 text-primary-600">
                         <Store className="h-5 w-5" />
                       </span>
-                      <div>
-                        <p className="font-bold">{sucursal.nombre}</p>
-                        <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="h-3 w-3" />
-                          {sucursal.direccion || "Sin dirección"}
+                      <div className="min-w-0">
+                        <p className="truncate font-bold">{sucursal.nombre}</p>
+                        <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{sucursal.direccion || "Sin dirección"}</span>
                         </p>
                       </div>
                     </div>
-                    <ArrowUpRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-accent-600" />
+                    <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-accent-600" />
                   </div>
 
                   <div>
@@ -720,13 +780,13 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">Neto en caja</p>
                       <p className="cifra font-bold text-accent-700 dark:text-accent-400">{formatCOP(neto)}</p>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Fiados pendientes</p>
-                      <p className="cifra font-bold text-amber-700 dark:text-amber-400">{formatCOP(fiados)}</p>
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Créditos pendientes</p>
+                      <p className="cifra font-bold text-amber-700 dark:text-amber-400">{formatCOP(creditos)}</p>
                     </div>
                   </div>
 
@@ -761,21 +821,20 @@ export default function DashboardPage() {
 
       {/* ---------- F) Últimas ventas + stock crítico ---------- */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Entrada i={9} className="lg:col-span-2">
+        <Entrada i={9} className="min-w-0 lg:col-span-2">
           <Card className="h-full gap-0 overflow-hidden py-0">
             <CardHeader className="px-5 pb-2 pt-5">
               <CardTitle className="text-lg">Últimas ventas</CardTitle>
               <CardDescription>Las 6 transacciones más recientes de la vista actual.</CardDescription>
             </CardHeader>
-            <CardContent className="px-2 pb-3 pt-0 sm:px-4">
-              <div className="overflow-x-auto pb-2">
-              <Table>
+            <div className="overflow-x-auto pb-2">
+              <Table className="min-w-[640px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Venta</TableHead>
                     <TableHead>Sucursal</TableHead>
                     <TableHead>Cliente</TableHead>
-                    <TableHead>Método</TableHead>
+                    <TableHead>Pago</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -787,47 +846,61 @@ export default function DashboardPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    d.ultimas.map((v) => (
-                      <TableRow key={v.id}>
-                        <TableCell>
-                          <p className="cifra font-semibold uppercase">{v.id}</p>
-                          <p className="cifra text-xs text-muted-foreground">
-                            {fechaCorta(v.fecha)} · {horaVenta(v.fecha)}
-                          </p>
-                        </TableCell>
-                        <TableCell>{sucursalDe(v.sucursalId)}</TableCell>
-                        <TableCell>{v.clienteId ? clienteDe(v.clienteId) : "Mostrador"}</TableCell>
-                        <TableCell>
-                          <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold", METODOS[v.metodo].badge)}>
-                            {METODOS[v.metodo].label}
-                          </span>
-                          {v.metodo === "fiado" && (
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">
-                              {v.estadoDeuda === "pendiente" ? "Pendiente" : "Pagado"}
+                    d.ultimas.map((v) => {
+                      const lineas = pagosPorVenta.get(v.id) ?? []
+                      return (
+                        <TableRow key={v.id}>
+                          <TableCell>
+                            <p className="cifra font-semibold uppercase">{v.id}</p>
+                            <p className="cifra text-xs text-muted-foreground">
+                              {fechaCorta(v.fecha)} · {horaVenta(v.fecha)}
                             </p>
-                          )}
-                        </TableCell>
-                        <TableCell className="cifra text-right font-bold">{formatCOP(v.total)}</TableCell>
-                      </TableRow>
-                    ))
+                          </TableCell>
+                          <TableCell>{sucursalDe(v.sucursalId)}</TableCell>
+                          <TableCell>{v.clienteId ? clienteDe(v.clienteId) : "Mostrador"}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col items-start gap-1">
+                              {lineas.map((p) => (
+                                <span
+                                  key={p.id}
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold",
+                                    METODOS[p.payment_type]?.badge
+                                  )}
+                                >
+                                  {METODOS[p.payment_type]?.corto ?? p.payment_type}
+                                  {p.payment_provider && ` · ${p.payment_provider}`}
+                                  {lineas.length > 1 && (
+                                    <span className="cifra font-semibold">{formatCOP(p.monto)}</span>
+                                  )}
+                                </span>
+                              ))}
+                              {v.estadoDeuda && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  {v.estadoDeuda === "pendiente" ? "Crédito pendiente" : "Crédito pagado"}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="cifra text-right font-bold">{formatCOP(v.total)}</TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
-              </div>
-            </CardContent>
+            </div>
           </Card>
         </Entrada>
 
-        <Entrada i={10}>
+        <Entrada i={10} className="min-w-0">
           <Card className="h-full gap-0 py-0">
             <CardHeader className="px-5 pb-2 pt-5">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Bell className="h-5 w-5 text-amber-600" />
                 Alertas de stock bajo
               </CardTitle>
-              <CardDescription>
-                Productos con <span className="cifra">{UMBRAL_STOCK}</span> unidades o menos.
-              </CardDescription>
+              <CardDescription>Productos en o por debajo de su stock mínimo.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 p-5 pt-2">
               {d.criticos.length === 0 ? (
@@ -842,15 +915,11 @@ export default function DashboardPage() {
                     return (
                       <li
                         key={`${producto.id}-${sucursal.id}`}
-                        className="flex items-center gap-3 rounded-lg border bg-background p-3"
+                        className="flex min-w-0 items-center gap-3 rounded-lg border bg-background p-3"
                       >
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary-500/10 text-primary-600">
                           {producto.imagenUrl ? (
-                            <img
-                              src={producto.imagenUrl}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
+                            <img src={producto.imagenUrl} alt="" className="h-full w-full object-cover" />
                           ) : (
                             <Icono className="h-5 w-5" />
                           )}

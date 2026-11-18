@@ -15,6 +15,12 @@ import {
   ejecutarOnboardingTransaccional,
   leerOnboardingGuardado,
 } from "@/services/onboarding.service"
+import {
+  PROVEEDORES_TRANSFERENCIA_DEFAULT,
+  FRANQUICIAS_DATAFONO_DEFAULT,
+  FRANQUICIA_DATAFONO_PREDETERMINADA,
+  normalizarNombrePago,
+} from "@/config/catalogs"
 
 // ---------- Utilidades ----------
 export const formatCOP = (valor) =>
@@ -133,9 +139,12 @@ const PROVEEDORES_INICIALES = [
   { id: "pr3", nombre: "Panadería El Trigal", contacto: "300 000 0003" },
 ]
 
-// Crea una venta calculando el total a partir de los productos.
+// ---------- Pagos: modelo relacional (pagos_venta) ----------
+// Crea una venta y sus líneas de pago.
+// pagos: [[payment_type, payment_provider?, monto?]]
+// Una línea sin monto toma lo que falta para completar el total (pago único = todo el total).
 // nombreHistorico equivale a detalle_ventas.nombre_historico en Supabase.
-const crearVenta = (id, sucursalId, dias, metodo, items, clienteId = null, pagada = true) => {
+const crearVenta = (id, sucursalId, dias, pagos, items, clienteId = null, creditoPagado = false) => {
   const n = parseInt(id.slice(1), 10) || 0
   const detalle = items.map(([productoId, cantidad]) => {
     const producto = PRODUCTOS_INICIALES.find((p) => p.id === productoId)
@@ -147,47 +156,84 @@ const crearVenta = (id, sucursalId, dias, metodo, items, clienteId = null, pagad
       subtotal: producto.precio * cantidad,
     }
   })
+  const total = detalle.reduce((suma, i) => suma + i.subtotal, 0)
+
+  let acumulado = 0
+  const lineas = pagos.map(([payment_type, payment_provider = null, monto], i) => {
+    const valor = monto ?? total - acumulado
+    acumulado += valor
+    return {
+      id: `${id}-pg${i + 1}`,
+      venta_id: id,
+      payment_type,
+      payment_provider,
+      monto: valor,
+      referencia: null,
+    }
+  })
+  const tieneCredito = lineas.some((l) => l.payment_type === "credito")
+
   return {
-    id,
-    sucursalId,
-    fecha: fechaDemo(dias, n),
-    metodo, // "efectivo" | "nequi" | "fiado"
-    clienteId,
-    estadoDeuda: metodo === "fiado" ? (pagada ? "pagada" : "pendiente") : null,
-    items: detalle,
-    total: detalle.reduce((suma, i) => suma + i.subtotal, 0),
+    venta: {
+      id,
+      sucursalId,
+      fecha: fechaDemo(dias, n),
+      clienteId,
+      // estadoDeuda solo existe si hay una línea de crédito
+      estadoDeuda: tieneCredito ? (creditoPagado ? "pagada" : "pendiente") : null,
+      items: detalle,
+      total,
+    },
+    pagos: lineas,
   }
 }
 
-const VENTAS_INICIALES = [
+const DEMO_VENTAS = [
   // Hoy
-  crearVenta("v001", "s1", 0, "efectivo", [["p1", 1], ["p3", 2]]),
-  crearVenta("v002", "s1", 0, "nequi", [["p2", 1], ["p4", 2]]),
-  crearVenta("v003", "s2", 0, "efectivo", [["p5", 2], ["p6", 1]]),
-  crearVenta("v004", "s3", 0, "efectivo", [["p8", 2], ["p9", 2]]),
-  crearVenta("v005", "s3", 0, "nequi", [["p8", 1], ["p9", 1]]),
-  crearVenta("v006", "s1", 0, "fiado", [["p4", 2], ["p6", 1]], "c2", false),
+  crearVenta("v001", "s1", 0, [["efectivo"]], [["p1", 1], ["p3", 2]]),
+  crearVenta("v002", "s1", 0, [["transferencia", "Nequi"]], [["p2", 1], ["p4", 2]]),
+  crearVenta("v003", "s2", 0, [["tarjeta", "Redeban"]], [["p5", 2], ["p6", 1]]),
+  crearVenta("v004", "s3", 0, [["efectivo"]], [["p8", 2], ["p9", 2]]),
+  crearVenta("v005", "s3", 0, [["transferencia", "Bancolombia"]], [["p8", 1], ["p9", 1]]),
+  crearVenta("v006", "s1", 0, [["credito"]], [["p4", 2], ["p6", 1]], "c2"),
+  // Pago dividido: $20.000 en efectivo y el resto con tarjeta
+  crearVenta("v016", "s3", 0, [["efectivo", null, 20000], ["tarjeta", "Bold"]], [["p8", 2], ["p9", 1]]),
   // Últimos 7 días (para las gráficas)
-  crearVenta("v007", "s1", 1, "efectivo", [["p7", 2], ["p3", 4]]),
-  crearVenta("v008", "s2", 1, "nequi", [["p5", 3], ["p2", 1]]),
-  crearVenta("v009", "s3", 1, "efectivo", [["p8", 3], ["p9", 3]]),
-  crearVenta("v010", "s1", 2, "nequi", [["p1", 2], ["p7", 1]]),
-  crearVenta("v011", "s2", 2, "efectivo", [["p4", 4], ["p6", 2]]),
-  crearVenta("v012", "s3", 3, "nequi", [["p8", 4], ["p9", 2]]),
-  crearVenta("v013", "s1", 4, "efectivo", [["p2", 2], ["p5", 2]]),
-  crearVenta("v014", "s2", 5, "efectivo", [["p3", 6], ["p1", 1]]),
-  crearVenta("v015", "s3", 6, "efectivo", [["p8", 2], ["p9", 4]]),
-  // Fiados de Sebastián (pendientes)
-  crearVenta("v101", "s1", 3, "fiado", [["p1", 1], ["p2", 1]], "c1", false),
-  crearVenta("v102", "s2", 1, "fiado", [["p7", 1], ["p5", 1]], "c1", false),
-  // Fiado ya pagado de Don Carlos (hace 8 días: solo entra en "Histórico")
-  crearVenta("v103", "s1", 8, "fiado", [["p3", 3]], "c3", true),
+  crearVenta("v007", "s1", 1, [["efectivo"]], [["p7", 2], ["p3", 4]]),
+  crearVenta("v008", "s2", 1, [["transferencia", "Nequi"]], [["p5", 3], ["p2", 1]]),
+  crearVenta("v009", "s3", 1, [["efectivo"]], [["p8", 3], ["p9", 3]]),
+  crearVenta("v010", "s1", 2, [["tarjeta", "Redeban"]], [["p1", 2], ["p7", 1]]),
+  crearVenta("v011", "s2", 2, [["efectivo"]], [["p4", 4], ["p6", 2]]),
+  crearVenta("v012", "s3", 3, [["transferencia", "Bre-B"]], [["p8", 4], ["p9", 2]]),
+  // Pago dividido: $20.000 en efectivo y el resto por transferencia
+  crearVenta("v013", "s1", 4, [["efectivo", null, 20000], ["transferencia", "Bancolombia"]], [["p2", 2], ["p5", 2]]),
+  crearVenta("v014", "s2", 5, [["efectivo"]], [["p3", 6], ["p1", 1]]),
+  crearVenta("v015", "s3", 6, [["efectivo"]], [["p8", 2], ["p9", 4]]),
+  // Créditos de Sebastián (pendientes)
+  crearVenta("v101", "s1", 3, [["credito"]], [["p1", 1], ["p2", 1]], "c1"),
+  crearVenta("v102", "s2", 1, [["credito"]], [["p7", 1], ["p5", 1]], "c1"),
+  // Crédito de Don Carlos (hace 8 días, ya pagado: solo entra en "Histórico")
+  crearVenta("v103", "s1", 8, [["credito"]], [["p3", 3]], "c3", true),
 ]
 
+const VENTAS_INICIALES = DEMO_VENTAS.map((x) => x.venta)
+const PAGOS_VENTA_INICIALES = DEMO_VENTAS.flatMap((x) => x.pagos)
+
+// abonos_credito: pagos de deudas (efectivo, transferencia o tarjeta; nunca crédito)
+const ABONOS_INICIALES = [
+  {
+    id: "ab1", clienteId: "c3", sucursalId: "s1",
+    payment_type: "efectivo", payment_provider: null,
+    monto: 13500, ventasSaldadasIds: ["v103"],
+    usuarioNombre: "Administrador Demo", fecha: fechaDemo(0, 2),
+  },
+]
+
+// egresos_caja: pagos a proveedores (efectivo o transferencia)
 const EGRESOS_INICIALES = [
-  { id: "e1", sucursalId: "s1", proveedorId: "pr1", monto: 120000, metodo: "efectivo", fecha: fechaHace(0), urlFoto: "https://placehold.co/400x520?text=Factura+Lacteos" },
-  { id: "e2", sucursalId: "s3", proveedorId: "pr2", monto: 85000, metodo: "nequi", fecha: fechaHace(0), urlFoto: "https://placehold.co/400x520?text=Factura+Montana" },
-  { id: "e3", sucursalId: "s2", proveedorId: "pr3", monto: 60000, metodo: "efectivo", fecha: fechaHace(1), urlFoto: "https://placehold.co/400x520?text=Factura+Trigal" },
+  { id: "e1", sucursalId: "s1", proveedorId: "pr1", monto: 120000, payment_type: "efectivo", payment_provider: null, fecha: fechaHace(0), urlFoto: "https://placehold.co/400x520?text=Factura+Lacteos" },
+  { id: "e2", sucursalId: "s3", proveedorId: "pr2", monto: 85000, payment_type: "transferencia", payment_provider: "Nequi", fecha: fechaHace(0), urlFoto: "https://placehold.co/400x520?text=Factura+Montana" },
+  { id: "e3", sucursalId: "s2", proveedorId: "pr3", monto: 60000, payment_type: "efectivo", payment_provider: null, fecha: fechaHace(1), urlFoto: "https://placehold.co/400x520?text=Factura+Trigal" },
 ]
 
 // Traslados internos (traslados_inventario): no afectan el dinero de la caja
@@ -228,7 +274,35 @@ const USUARIOS_DEMO = [
   { ...USUARIO_CAJERO_DEMO, pin_seguridad: "4321", creado_en: fechaHace(30) },
 ]
 
-// Datos del negocio de demostración (con ventas, stock, fiados...)
+// Configuración de medios de pago (SUPABASE: tabla payment_providers por negocio, con activo = borrado lógico)
+const configPagosInicial = () => ({
+  proveedoresTransferencia: PROVEEDORES_TRANSFERENCIA_DEFAULT.map((nombre, i) => ({
+    id: `pt${i + 1}`, nombre, activo: true,
+  })),
+  franquiciasDatafono: FRANQUICIAS_DATAFONO_DEFAULT.map((nombre, i) => ({
+    id: `fd${i + 1}`, nombre, activo: true,
+  })),
+  franquiciaPredeterminada: FRANQUICIA_DATAFONO_PREDETERMINADA,
+})
+
+// PIN numérico único de 6 dígitos (patrón ^[0-9]{4,6}$ de clientes_credito.pin_autorizacion)
+export const generarPinCliente = (pinsExistentes = [], largo = 6) => {
+  const usados = new Set(pinsExistentes)
+  for (let intento = 0; intento < 300; intento++) {
+    const azar =
+      typeof crypto !== "undefined" && crypto.getRandomValues
+        ? crypto.getRandomValues(new Uint32Array(1))[0]
+        : Math.floor(Math.random() * 4294967296)
+    const pin = String(azar % 10 ** largo).padStart(largo, "0")
+    if (!/^[0-9]{4,6}$/.test(pin)) continue
+    if (usados.has(pin)) continue
+    if (/^(\d)\1+$/.test(pin)) continue // descarta 000000, 111111...
+    return pin
+  }
+  throw new Error("No se pudo generar un PIN único")
+}
+
+// Datos del negocio de demostración (con ventas, stock, créditos...)
 const datosDemo = () => ({
   negocio: NEGOCIO_DEMO,
   sucursales: SUCURSALES,
@@ -237,6 +311,9 @@ const datosDemo = () => ({
   proveedores: PROVEEDORES_INICIALES,
   ventas: VENTAS_INICIALES,
   egresos: EGRESOS_INICIALES,
+  pagosVenta: PAGOS_VENTA_INICIALES,
+  abonosCredito: ABONOS_INICIALES,
+  configPagos: configPagosInicial(),
   traslados: TRASLADOS_INICIALES,
   usuariosNegocio: USUARIOS_DEMO,
   pinAdmin: PIN_ADMIN_DEMO,
@@ -259,6 +336,9 @@ const datosNegocioNuevo = ({ negocio, sucursal, usuarios }) => ({
   proveedores: [],
   ventas: [],
   egresos: [],
+  pagosVenta: [],
+  abonosCredito: [],
+  configPagos: configPagosInicial(),
   traslados: [],
   usuariosNegocio: usuarios,
   pinAdmin: usuarios.find((u) => u.rol === "admin")?.pin_seguridad ?? PIN_ADMIN_DEMO,
@@ -313,6 +393,9 @@ export function POSProvider({ children }) {
   const [proveedores, setProveedores] = useState(datosIniciales.proveedores)
   const [ventas, setVentas] = useState(datosIniciales.ventas)
   const [egresos, setEgresos] = useState(datosIniciales.egresos)
+  const [pagosVenta, setPagosVenta] = useState(datosIniciales.pagosVenta ?? [])
+  const [abonosCredito, setAbonosCredito] = useState(datosIniciales.abonosCredito ?? [])
+  const [configPagos, setConfigPagos] = useState(datosIniciales.configPagos ?? configPagosInicial())
   const [traslados, setTraslados] = useState(datosIniciales.traslados)
 
   // Autorización de administrador (PIN)
@@ -332,23 +415,30 @@ export function POSProvider({ children }) {
     setProveedores(d.proveedores)
     setVentas(d.ventas)
     setEgresos(d.egresos)
+    setPagosVenta(d.pagosVenta ?? [])
+    setAbonosCredito(d.abonosCredito ?? [])
+    setConfigPagos(d.configPagos ?? configPagosInicial())
     setTraslados(d.traslados ?? [])
   }, [])
 
   // Todos los productos expuestos incluyen nombreUnificado (siempre recalculado)
   const productos = useMemo(() => productosBase.map(conNombreUnificado), [productosBase])
 
-  // La deuda de cada cliente se calcula a partir de sus ventas fiadas pendientes
-  const clientesConDeuda = useMemo(
-    () =>
-      clientes.map((c) => ({
-        ...c,
-        deuda: ventas
-          .filter((v) => v.clienteId === c.id && v.estadoDeuda === "pendiente")
-          .reduce((suma, v) => suma + v.total, 0),
-      })),
-    [clientes, ventas]
-  )
+   // La deuda sale de la línea de crédito de cada venta pendiente (no del total de la venta)
+  const clientesConDeuda = useMemo(() => {
+    const creditoPorVenta = new Map()
+    for (const p of pagosVenta) {
+      if (p.payment_type === "credito") {
+        creditoPorVenta.set(p.venta_id, (creditoPorVenta.get(p.venta_id) ?? 0) + p.monto)
+      }
+    }
+    return clientes.map((c) => ({
+      ...c,
+      deuda: ventas
+        .filter((v) => v.clienteId === c.id && v.estadoDeuda === "pendiente")
+        .reduce((suma, v) => suma + (creditoPorVenta.get(v.id) ?? 0), 0),
+    }))
+  }, [clientes, ventas, pagosVenta])
 
   const sucursalActual = sucursales.find((s) => s.id === sucursalActiva) || null
 
@@ -648,6 +738,97 @@ export function POSProvider({ children }) {
     [productosBase, sucursales, usuario, rol]
   )
 
+    // =====================================================================
+  // MEDIOS DE PAGO: proveedores de transferencia y franquicias de datáfono
+  // Borrado lógico: se desactivan, nunca se eliminan (el historial guarda el nombre tal cual).
+  // =====================================================================
+  const claveConfig = (tipo) => (tipo === "tarjeta" ? "franquiciasDatafono" : "proveedoresTransferencia")
+
+  // tipo: "transferencia" (Nequi, Bancolombia...) | "tarjeta" (Redeban, Bold...)
+  const agregarProveedorPago = useCallback(
+    (tipo, nombre) => {
+      if (tipo !== "transferencia" && tipo !== "tarjeta") throw new Error("Tipo de pago no válido")
+      const limpio = aTexto(nombre)
+      if (limpio.length < 2) throw new Error("Escribe el nombre del proveedor")
+      if (limpio.length > 50) throw new Error("El nombre admite máximo 50 caracteres")
+
+      const clave = claveConfig(tipo)
+      const existente = configPagos[clave].find(
+        (p) => normalizarNombrePago(p.nombre) === normalizarNombrePago(limpio)
+      )
+      if (existente?.activo) throw new Error(`“${existente.nombre}” ya existe`)
+
+      setConfigPagos((c) => ({
+        ...c,
+        [clave]: existente
+          ? c[clave].map((p) => (p.id === existente.id ? { ...p, activo: true } : p))
+          : [...c[clave], { id: `pp-${generarUUID()}`, nombre: limpio, activo: true }],
+      }))
+      return existente?.nombre ?? limpio
+    },
+    [configPagos]
+  )
+
+  const cambiarEstadoProveedorPago = useCallback(
+    (tipo, id, activo) => {
+      const clave = claveConfig(tipo)
+      const item = configPagos[clave].find((p) => p.id === id)
+      if (!item) throw new Error("El proveedor no existe")
+
+      let predeterminada = configPagos.franquiciaPredeterminada
+      if (
+        !activo &&
+        tipo === "tarjeta" &&
+        normalizarNombrePago(item.nombre) === normalizarNombrePago(predeterminada)
+      ) {
+        // No se puede desactivar la predeterminada sin dejar otra activa en su lugar
+        const otra = configPagos.franquiciasDatafono.find((p) => p.id !== id && p.activo)
+        if (!otra) throw new Error("Debe quedar al menos una franquicia de datáfono activa")
+        predeterminada = otra.nombre
+      }
+
+      setConfigPagos((c) => ({
+        ...c,
+        franquiciaPredeterminada: predeterminada,
+        [clave]: c[clave].map((p) => (p.id === id ? { ...p, activo: Boolean(activo) } : p)),
+      }))
+    },
+    [configPagos]
+  )
+
+  const establecerFranquiciaPredeterminada = useCallback(
+    (nombre) => {
+      const f = configPagos.franquiciasDatafono.find(
+        (x) => x.activo && normalizarNombrePago(x.nombre) === normalizarNombrePago(nombre)
+      )
+      if (!f) throw new Error("Elige una franquicia activa")
+      setConfigPagos((c) => ({ ...c, franquiciaPredeterminada: f.nombre }))
+    },
+    [configPagos]
+  )
+
+  // Crea un cliente de crédito con PIN numérico único de 6 dígitos (exclusivo del admin: usar con solicitarAutorizacion)
+  // SUPABASE: insert en clientes_credito (pin_autorizacion con el patrón ^[0-9]{4,6}$)
+  const crearClienteCredito = useCallback(
+    ({ nombre, telefono, cupoMaximo }) => {
+      const nombreLimpio = aTexto(nombre)
+      if (nombreLimpio.length < 2) throw new Error("El nombre del cliente es obligatorio")
+      const cupo = aNumero(cupoMaximo, 0)
+      if (cupo < 0) throw new Error("El cupo máximo no puede ser negativo")
+
+      const cliente = {
+        id: `c-${generarUUID()}`,
+        nombre: nombreLimpio,
+        telefono: aTexto(telefono),
+        pin: generarPinCliente(clientes.map((c) => c.pin)),
+        cupoMaximo: redondear2(cupo),
+      }
+      setClientes((lista) => [...lista, cliente])
+      return cliente
+    },
+    [clientes]
+  )
+
   // ---------- Sesión (usa la capa de servicios) ----------
   const aplicarSesion = useCallback(
     (sesion) => {
@@ -787,6 +968,15 @@ export function POSProvider({ children }) {
     setVentas,
     egresos,
     setEgresos,
+    pagosVenta,
+    setPagosVenta,
+    abonosCredito,
+    setAbonosCredito,
+    configPagos,
+    agregarProveedorPago,
+    cambiarEstadoProveedorPago,
+    establecerFranquiciaPredeterminada,
+    crearClienteCredito,
   }
 
   return <POSContext.Provider value={value}>{children}</POSContext.Provider>

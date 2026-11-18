@@ -201,3 +201,28 @@ export const TIPOS_ITEM = {
     descripcion: "Producto del menú que armas con tus insumos o cocinas por lotes.",
   },
 }
+
+// ---------------------------------------------------------------------
+// MEDIOS DE PAGO (payment_type / payment_provider)
+// payment_type: efectivo | tarjeta | transferencia | credito
+// payment_provider: texto libre, solo en transferencia o tarjeta
+// ---------------------------------------------------------------------
+export const TIPOS_PAGO = {
+  efectivo: { label: "Efectivo" },
+  transferencia: { label: "Transferencias" },
+  tarjeta: { label: "Tarjeta" },
+  credito: { label: "Crédito" },
+}
+
+export const PROVEEDORES_TRANSFERENCIA_DEFAULT = ["Nequi", "Bancolombia", "Bre-B", "QR Bold"]
+export const FRANQUICIAS_DATAFONO_DEFAULT = ["Redeban", "Credibanco", "Bold"]
+export const FRANQUICIA_DATAFONO_PREDETERMINADA = "Redeban"
+
+// "Nequí", "NEQUI" y " nequi " son el mismo proveedor (evita duplicados al agregar)
+export const normalizarNombrePago = (s) =>
+  (s ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")

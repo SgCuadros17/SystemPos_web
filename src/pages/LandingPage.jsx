@@ -29,13 +29,14 @@ import { Separator } from "@/components/ui/separator"
 const ENLACES = [
   { id: "inicio", label: "Inicio" },
   { id: "quienes-somos", label: "Quiénes somos" },
-  { id: "para-que-sirve", label: "¿Para qué sirve?" },
+  { id: "soluciones", label: "Soluciones" },
 ]
 
 const METODOS = {
-  efectivo: { label: "Efectivo en cajas", punto: "bg-accent-500" },
-  nequi: { label: "Total en Nequi", punto: "bg-secondary-500" },
-  fiado: { label: "Fiado por cobrar", punto: "bg-amber-500" },
+  efectivo: { label: "Efectivo en cajas", corto: "Efectivo", punto: "bg-accent-500" },
+  transferencia: { label: "Transferencias", corto: "Transferencia", punto: "bg-primary-500" },
+  tarjeta: { label: "Tarjeta (datáfono)", corto: "Tarjeta", punto: "bg-secondary-500" },
+  credito: { label: "Créditos por cobrar", corto: "Crédito", punto: "bg-amber-500" },
 }
 
 const BARRAS = [48, 62, 55, 78, 70, 92, 84]
@@ -45,15 +46,16 @@ const DIAS = ["L", "M", "X", "J", "V", "S", "D"]
 // Vista previa animada del dashboard (todo es simulado)
 // ---------------------------------------------------------------------
 function VistaPrevia() {
-  const [caja, setCaja] = useState({ efectivo: 842500, nequi: 513000, fiado: 187000 })
+  const [caja, setCaja] = useState({ efectivo: 842500, transferencia: 513000, tarjeta: 268000, credito: 187000 })
   const [evento, setEvento] = useState(null)
   const [barra, setBarra] = useState(null)
 
   useEffect(() => {
     let n = 0
+    const claves = Object.keys(METODOS)
     const id = setInterval(() => {
       n += 1
-      const metodo = ["efectivo", "nequi", "fiado"][Math.floor(Math.random() * 3)]
+      const metodo = claves[Math.floor(Math.random() * claves.length)]
       const monto = (Math.floor(Math.random() * 40) + 6) * 1000
       setCaja((c) => ({ ...c, [metodo]: c[metodo] + monto }))
       setEvento({ n, metodo, monto })
@@ -75,14 +77,14 @@ function VistaPrevia() {
         </div>
 
         {/* Métricas */}
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3">
           {Object.entries(METODOS).map(([clave, m]) => (
-            <div key={clave} className="rounded-xl border bg-background p-3">
+            <div key={clave} className="min-w-0 rounded-xl border bg-background p-3">
               <p className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
-                <span className={cn("h-2 w-2 rounded-full", m.punto)} />
-                {m.label}
+                <span className={cn("h-2 w-2 shrink-0 rounded-full", m.punto)} />
+                <span className="truncate">{m.label}</span>
               </p>
-              <p className="cifra mt-1 text-lg font-bold">{formatCOP(caja[clave])}</p>
+              <p className="cifra mt-1 truncate text-lg font-bold">{formatCOP(caja[clave])}</p>
             </div>
           ))}
         </div>
@@ -128,13 +130,13 @@ function VistaPrevia() {
           className="abaco-entrada absolute -bottom-5 left-2 flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-xs shadow-lg sm:-left-6"
         >
           <span className={cn("h-2 w-2 rounded-full", METODOS[evento.metodo].punto)} />
-          <span className="font-semibold capitalize">{evento.metodo}</span>
+          <span className="font-semibold">{METODOS[evento.metodo].corto}</span>
           <span className="cifra font-bold">+{formatCOP(evento.monto)}</span>
         </div>
       )}
 
       {/* Chip flotante: cierre cuadrado */}
-      <div className="abaco-flotar absolute -right-2 -top-4 flex items-center gap-2 rounded-xl bg-accent-500 px-3 py-2 text-xs font-bold text-white shadow-lg sm:-right-5">
+      <div className="abaco-flotar absolute -right-2 -top-4 flex items-center gap-2 rounded-xl bg-accent-500 px-3 py-2 text-xs font-bold text-text-950 shadow-lg dark:text-background-50 sm:-right-5">
         <Check className="h-4 w-4" />
         Cierre de caja cuadrado
       </div>
@@ -143,7 +145,7 @@ function VistaPrevia() {
 }
 
 const NEGOCIOS = [
-  { icon: Store, titulo: "Tiendas", texto: "Venta rápida de abarrotes con fiado de confianza." },
+  { icon: Store, titulo: "Tiendas", texto: "Venta rápida de abarrotes con crédito de confianza." },
   { icon: ShoppingBasket, titulo: "Minimercados", texto: "Varias categorías, alta rotación y varias sedes." },
   { icon: Hammer, titulo: "Ferreterías", texto: "Catálogo grande con códigos de barras y proveedores." },
   { icon: UtensilsCrossed, titulo: "Restaurantes", texto: "Platos y bebidas con cierre de turno exacto." },
@@ -153,7 +155,7 @@ const MODULOS = [
   {
     icon: ShoppingCart,
     titulo: "Punto de Venta",
-    texto: "Cobra en Efectivo, Nequi o Crédito con botones grandes y alto contraste. El stock se descuenta solo.",
+    texto: "Cobra en Efectivo, Transferencia, Tarjeta o Crédito con botones grandes y alto contraste. El stock se descuenta solo.",
   },
   {
     icon: Package,
@@ -163,22 +165,22 @@ const MODULOS = [
   {
     icon: KeyRound,
     titulo: "Créditos con PIN",
-    texto: "Solo el administrador autoriza clientes. Cada fiado exige el PIN del cliente y confirma su nombre.",
+    texto: "Solo el administrador autoriza clientes. Cada crédito exige el PIN del cliente y confirma su nombre.",
   },
   {
     icon: Users,
     titulo: "Gestión de Cartera",
-    texto: "Cada compra fiada es un recibo. Selecciona con checkboxes cuáles deudas se pagan hoy y ve su detalle.",
+    texto: "Salud financiera para tu negocio: tus cuentas por cobrar, abonos y pagos a proveedores sin mezclar el crédito con tu efectivo real. Toma decisiones con analíticas claras de liquidez y rentabilidad por sucursal.",
   },
   {
     icon: Camera,
     titulo: "Proveedores con auditoría",
-    texto: "Registra cada pago con la foto de la factura para que el dueño cruce cuentas antes de subir mercancía.",
+    texto: "Registra cada pago con la foto o PDF de la factura para que el dueño cruce cuentas antes de subir mercancía.",
   },
   {
     icon: Receipt,
     titulo: "Cierres de Caja",
-    texto: "Arqueo separado en efectivo y Nequi. El fiado del día se muestra aparte, sin inflar la caja.",
+    texto: "Arqueo separado en efectivo, transferencias y datáfono. El crédito del día se muestra aparte, sin inflar la caja.",
   },
 ]
 
@@ -259,7 +261,7 @@ export default function LandingPage() {
               <h1 className="mt-5 text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
                 Controla cada <span className="text-primary-500">sucursal</span>, cada{" "}
                 <span className="text-accent-600 dark:text-accent-400">peso</span> y cada{" "}
-                <span className="text-primary-500">fiado</span>.
+                <span className="text-primary-500">crédito</span>.
               </h1>
               <p className="mt-5 max-w-lg text-lg text-muted-foreground">
                 Abaco es el punto de venta que cuadra tu caja al centavo: ventas, inventario,
@@ -290,7 +292,7 @@ export default function LandingPage() {
                 )}
               </div>
               <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm font-semibold text-muted-foreground">
-                {["Efectivo, Nequi y Crédito", "Multisucursal", "Plan gratis"].map((t) => (
+                {["Efectivo, Transferencia, Tarjeta y Crédito", "Multisucursal", "Plan gratis"].map((t) => (
                   <li key={t} className="flex items-center gap-1.5">
                     <Check className="h-4 w-4 text-accent-600 dark:text-accent-400" />
                     {t}
@@ -334,12 +336,12 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ---------- Para qué sirve ---------- */}
-        <section id="para-que-sirve" className="scroll-mt-20 px-4 py-20">
+        {/* ---------- Soluciones ---------- */}
+        <section id="soluciones" className="scroll-mt-20 px-4 py-20">
           <div className="mx-auto max-w-6xl">
-            <p className="text-sm font-bold uppercase tracking-wider text-primary-500">¿Para qué sirve?</p>
+            <p className="text-sm font-bold uppercase tracking-wider text-primary-500">Soluciones</p>
             <h2 className="mt-2 max-w-2xl text-3xl font-extrabold tracking-tight sm:text-4xl">
-              Seis módulos, una sola verdad contable.
+              ¿Qué transformamos en tu negocio?
             </h2>
 
             <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -366,15 +368,15 @@ export default function LandingPage() {
                 <div className="cifra flex flex-wrap items-center gap-x-3 gap-y-2 text-base font-semibold md:text-lg">
                   <span className="rounded-lg bg-card px-3 py-1.5">Ventas en efectivo</span>
                   <span>+</span>
-                  <span className="rounded-lg bg-card px-3 py-1.5">Abonos de fiados</span>
+                  <span className="rounded-lg bg-card px-3 py-1.5">Abonos a créditos</span>
                   <span>−</span>
                   <span className="rounded-lg bg-card px-3 py-1.5">Pagos a proveedores</span>
                   <span>=</span>
-                  <span className="rounded-lg bg-accent-500 px-3 py-1.5 text-white">Efectivo en el cajón</span>
+                  <span className="rounded-lg bg-accent-500 px-3 py-1.5 text-white">Efectivo en la caja</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Lo mismo para Nequi. Las ventas al fiado no inflan la caja: se muestran aparte como
-                  “Total fiado hoy”.
+                  Lo mismo para Transferencias y Tarjetas. Las ventas al crédito no inflan la caja: se muestran aparte como
+                  “Total crédito hoy”.
                 </p>
               </CardContent>
             </Card>
@@ -419,7 +421,7 @@ export default function LandingPage() {
               </div>
               <p className="mt-3 max-w-sm text-sm text-muted-foreground">
                 POS multisucursal para tiendas, minimercados, ferreterías y restaurantes. Ventas,
-                inventario, fiados y cierres de caja en un solo lugar.
+                inventario, crédito y cierres de caja en un solo lugar.
               </p>
             </div>
 
